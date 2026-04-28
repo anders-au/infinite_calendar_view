@@ -121,8 +121,9 @@ class _WeekState extends State<Week> {
                     ),
 
                     // week events
-                    DecoratedBox(
-                      decoration: widget.daysParam.daysDecoration ?? BoxDecoration(),
+                    Container(
+                      padding: widget.daysParam.dayCellPadding ?? EdgeInsets.zero,
+                      decoration: widget.daysParam.dayCellDecoration ?? BoxDecoration(),
                       child: SizedBox(
                         height: widget.weekHeight - widget.daysParam.headerHeight,
                         child: Stack(

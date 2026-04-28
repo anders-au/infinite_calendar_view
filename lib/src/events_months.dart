@@ -354,7 +354,9 @@ class DaysParam {
     this.eventHeight = 20.0,
     this.eventSpacing = 2.0,
     this.spaceBetweenHeaderAndEvents = 6.0,
-    this.daysDecoration,
+    this.dayCellDecoration,
+    this.dayCellPadding,
+
     this.dayHeaderBuilder,
     this.dayHeaderTextBuilder,
     this.dayEventBuilder,
@@ -376,7 +378,10 @@ class DaysParam {
   final double spaceBetweenHeaderAndEvents;
 
   /// Single day decoration
-  final BoxDecoration? daysDecoration;
+  final BoxDecoration? dayCellDecoration;
+
+  /// Single day padding
+  final EdgeInsets? dayCellPadding;
 
   /// day header builder
   final Widget Function(DateTime day)? dayHeaderBuilder;
