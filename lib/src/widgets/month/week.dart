@@ -121,18 +121,21 @@ class _WeekState extends State<Week> {
                     ),
 
                     // week events
-                    SizedBox(
-                      height: widget.weekHeight - widget.daysParam.headerHeight,
-                      child: Stack(
-                        children: [
-                          for (var dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++)
+                    DecoratedBox(
+                      decoration: widget.daysParam.daysDecoration ?? BoxDecoration(),
+                      child: SizedBox(
+                        height: widget.weekHeight - widget.daysParam.headerHeight,
+                        child: Stack(
+                          children: [
+                            for (var dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++)
                             for (var eventIndex = 0;
                                 eventIndex < weekShowedEvents[dayOfWeek].length;
                                 eventIndex++)
                               if (eventIndex < widget.maxEventsShowed)
                                 ...getEventOrMoreEventsWidget(
                                     dayOfWeek, eventIndex, dayWidth),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
