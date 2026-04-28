@@ -57,15 +57,43 @@ SplayTreeMap<UniqueKey, Map<int, Event>> getWeekMultiDaysEventsSortedMap(
     }
   }
 
+  // preserve insertion order as a deterministic final tie-breaker between keys
+  final keyOrder = <UniqueKey, int>{};
+  var keyIndex = 0;
+  for (final key in multiDaysEventsMap.keys) {
+    keyOrder[key] = keyIndex++;
+  }
+
   // sort multi days events
   final sortedMultiDayEvents = SplayTreeMap<UniqueKey, Map<int, Event>>.from(
     multiDaysEventsMap,
     (a, b) {
+      if (identical(a, b)) {
+        return 0;
+      }
+
       var eventA = multiDaysEventsMap[a]!.values.first;
       var eventB = multiDaysEventsMap[b]!.values.first;
-      return eventA.startTime.compareTo(
-        eventB.startTime,
-      );
+
+      final byStart = eventA.startTime.compareTo(eventB.startTime);
+      if (byStart != 0) {
+        return byStart;
+      }
+
+      final endA = eventA.effectiveEndTime ?? eventA.endTime ?? eventA.startTime;
+      final endB = eventB.effectiveEndTime ?? eventB.endTime ?? eventB.startTime;
+      final byEnd = endA.compareTo(endB);
+      if (byEnd != 0) {
+        return byEnd;
+      }
+
+      final byColumn = eventA.columnIndex.compareTo(eventB.columnIndex);
+      if (byColumn != 0) {
+        return byColumn;
+      }
+
+      // Final tie-break so distinct keys are never considered equal.
+      return keyOrder[a]!.compareTo(keyOrder[b]!);
     },
   );
 
