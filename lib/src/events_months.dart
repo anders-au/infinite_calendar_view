@@ -232,11 +232,13 @@ class EventsMonthsState extends State<EventsMonths> {
   int getMaxEventsCanBeShowed() {
     var dayParam = widget.daysParam;
     var dayHeight = weekHeight;
+    var dayMargin = dayParam.dayCellMargin ?? EdgeInsets.symmetric(horizontal: widget.weekParam.daySpacing / 2);
     var headerHeight = dayParam.headerHeight;
     var eventHeight = dayParam.eventHeight;
     var space = dayParam.eventSpacing;
     var beforeEventSpacing = dayParam.spaceBetweenHeaderAndEvents;
-    return ((dayHeight - headerHeight - beforeEventSpacing + space) / (eventHeight + space)).toInt();
+    var maxEvents = ((dayHeight - dayMargin.vertical - headerHeight - beforeEventSpacing + space) / (eventHeight + space)).toInt();
+    return maxEvents < 0 ? 0 : maxEvents;
   }
 
   void _onScaleStart(ScaleStartDetails details) {
@@ -355,8 +357,7 @@ class DaysParam {
     this.eventSpacing = 2.0,
     this.spaceBetweenHeaderAndEvents = 6.0,
     this.dayCellDecoration,
-    this.dayCellPadding,
-
+    this.dayCellMargin,
     this.dayHeaderBuilder,
     this.dayHeaderTextBuilder,
     this.dayEventBuilder,
@@ -377,11 +378,15 @@ class DaysParam {
   /// space between header and events
   final double spaceBetweenHeaderAndEvents;
 
-  /// Single day decoration
+  /// Decoration painted behind the entire day cell, including the date header.
   final BoxDecoration? dayCellDecoration;
 
-  /// Single day padding
-  final EdgeInsets? dayCellPadding;
+  /// Inset applied to each day cell.
+  ///
+  /// This also defines the leading and trailing inset used by month events, so
+  /// multi-day bars can span across adjacent cells while still respecting the
+  /// outer edge of the first and last day.
+  final EdgeInsets? dayCellMargin;
 
   /// day header builder
   final Widget Function(DateTime day)? dayHeaderBuilder;
