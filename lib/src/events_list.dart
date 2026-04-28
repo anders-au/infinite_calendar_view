@@ -22,9 +22,8 @@ class EventsList extends StatefulWidget {
     this.dayHeaderBuilder,
     this.onDayChange,
     this.dayEventsBuilder,
-    this.verticalScrollPhysics = const BouncingScrollPhysics(
-      decelerationRate: ScrollDecelerationRate.fast,
-    ),
+    this.verticalScrollPhysics = const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast),
+    this.verticalController,
     this.showWebScrollBar = false,
   });
 
@@ -60,14 +59,15 @@ class EventsList extends StatefulWidget {
   final bool showWebScrollBar;
 
   /// day builder in top bar
-  final Widget Function(
-    DateTime day,
-    bool isToday,
-    List<Event>? events,
-  )? dayHeaderBuilder;
+  final Widget Function(DateTime day, bool isToday, List<Event>? events)? dayHeaderBuilder;
 
   /// Vertical day scroll physics
   final ScrollPhysics verticalScrollPhysics;
+
+  /// Optional vertical scroll controller.
+  ///
+  /// When null, this widget manages its own controller.
+  final ScrollController? verticalController;
 
   @override
   State createState() => EventsListState();
@@ -75,6 +75,7 @@ class EventsList extends StatefulWidget {
 
 class EventsListState extends State<EventsList> {
   late ScrollController mainVerticalController;
+  late bool _ownsMainVerticalController;
   late DateTime initialDay;
 
   // current day
@@ -86,20 +87,29 @@ class EventsListState extends State<EventsList> {
   @override
   void initState() {
     super.initState();
-    initialDay =
-        widget.initialDate?.withoutTime ?? widget.controller.focusedDay;
+    initialDay = widget.initialDate?.withoutTime ?? widget.controller.focusedDay;
     stickyDay = initialDay;
-    mainVerticalController = ScrollController();
+    _ownsMainVerticalController = widget.verticalController == null;
+    mainVerticalController = widget.verticalController ?? ScrollController();
+  }
+
+  @override
+  void didUpdateWidget(covariant EventsList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.verticalController != widget.verticalController) {
+      if (_ownsMainVerticalController) {
+        mainVerticalController.dispose();
+      }
+      _ownsMainVerticalController = widget.verticalController == null;
+      mainVerticalController = widget.verticalController ?? ScrollController();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return ScrollConfiguration(
       key: key,
-      behavior: ScrollConfiguration.of(context).copyWith(
-        scrollbars: widget.showWebScrollBar,
-        dragDevices: PointerDeviceKind.values.toSet(),
-      ),
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: widget.showWebScrollBar, dragDevices: PointerDeviceKind.values.toSet()),
       child: InfiniteList(
         controller: mainVerticalController,
         direction: InfiniteListDirection.multi,
@@ -124,18 +134,9 @@ class EventsListState extends State<EventsList> {
                   });
                 }
               }
-              return HeaderListWidget(
-                controller: widget.controller,
-                day: day,
-                isToday: isToday,
-                dayHeaderBuilder: widget.dayHeaderBuilder,
-              );
+              return HeaderListWidget(controller: widget.controller, day: day, isToday: isToday, dayHeaderBuilder: widget.dayHeaderBuilder);
             },
-            contentBuilder: (context) => DayEvents(
-              controller: widget.controller,
-              day: day,
-              dayEventsBuilder: widget.dayEventsBuilder,
-            ),
+            contentBuilder: (context) => DayEvents(controller: widget.controller, day: day, dayEventsBuilder: widget.dayEventsBuilder),
           );
         },
       ),
@@ -146,29 +147,48 @@ class EventsListState extends State<EventsList> {
   /// change initial date and redraw all list
   void jumpToDate(DateTime date) {
     if (context.mounted) {
+      if (_ownsMainVerticalController) {
+        mainVerticalController.dispose();
+      }
       setState(() {
         // change key to force rebuild
         key = UniqueKey();
         // change initial day
         initialDay = date.withoutTime;
         // reset scroll
-        mainVerticalController = ScrollController();
+        _ownsMainVerticalController = widget.verticalController == null;
+        mainVerticalController = widget.verticalController ?? ScrollController();
       });
+
+      if (!_ownsMainVerticalController) {
+        if (mainVerticalController.hasClients) {
+          mainVerticalController.jumpTo(0);
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mainVerticalController.hasClients) {
+              mainVerticalController.jumpTo(0);
+            }
+          });
+        }
+      }
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         widget.controller.notifyListeners();
       });
     }
   }
+
+  @override
+  void dispose() {
+    if (_ownsMainVerticalController) {
+      mainVerticalController.dispose();
+    }
+    super.dispose();
+  }
 }
 
 class DayEvents extends StatefulWidget {
-  const DayEvents({
-    super.key,
-    required this.controller,
-    required this.day,
-    required this.dayEventsBuilder,
-  });
+  const DayEvents({super.key, required this.controller, required this.day, required this.dayEventsBuilder});
 
   final EventsController controller;
   final DateTime day;
@@ -211,7 +231,6 @@ class _DayEventsState extends State<DayEvents> {
 
   @override
   Widget build(BuildContext context) {
-    return widget.dayEventsBuilder?.call(widget.day.withoutTime, events) ??
-        DefaultDayEvents(events: events);
+    return widget.dayEventsBuilder?.call(widget.day.withoutTime, events) ?? DefaultDayEvents(events: events);
   }
 }

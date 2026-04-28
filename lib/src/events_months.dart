@@ -21,9 +21,8 @@ class EventsMonths extends StatefulWidget {
     this.daysParam = const DaysParam(),
     this.onMonthChange,
     this.automaticAdjustScrollToStartOfMonth = true,
-    this.verticalScrollPhysics = const BouncingScrollPhysics(
-      decelerationRate: ScrollDecelerationRate.fast,
-    ),
+    this.verticalScrollPhysics = const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast),
+    this.verticalScrollController,
     this.showWebScrollBar = false,
     this.pinchToZoomParam = const PinchToZoom(),
   });
@@ -61,6 +60,11 @@ class EventsMonths extends StatefulWidget {
   /// Vertical day scroll physics
   final ScrollPhysics verticalScrollPhysics;
 
+  /// Optional vertical months scroll controller.
+  ///
+  /// When null, this widget manages its own controller.
+  final ScrollController? verticalScrollController;
+
   /// show scroll bar for web
   final bool showWebScrollBar;
 
@@ -71,7 +75,8 @@ class EventsMonths extends StatefulWidget {
 }
 
 class EventsMonthsState extends State<EventsMonths> {
-  late ScrollController scrollController;
+  late ScrollController _scrollController;
+  late bool _ownsScrollController;
   late DateTime initialMonth;
   late DateTime _stickyMonth;
   late double _stickyPercent;
@@ -80,7 +85,7 @@ class EventsMonthsState extends State<EventsMonths> {
   late double weekHeight;
   late double weekHeightScaleStart;
   late double scrollControllerOffsetScaleStart;
-  late VoidCallback automaticScrollAdjustListener;
+  VoidCallback? automaticScrollAdjustListener;
   bool _blockAdjustScroll = false;
   bool scrollIsStopped = true;
   int maxEventsShowed = 0;
@@ -93,14 +98,14 @@ class EventsMonthsState extends State<EventsMonths> {
     var initialDay = widget.initialMonth ?? widget.controller.focusedDay;
     initialMonth = DateTime(initialDay.year, initialDay.month);
     _stickyMonth = initialMonth;
-    scrollController = ScrollController();
+    _ownsScrollController = widget.verticalScrollController == null;
+    _scrollController = widget.verticalScrollController ?? ScrollController();
     maxEventsShowed = getMaxEventsCanBeShowed();
 
     if (widget.automaticAdjustScrollToStartOfMonth) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         automaticScrollAdjustListener = getAutomaticScrollAdjustListener();
-        scrollController.position.isScrollingNotifier
-            .addListener(automaticScrollAdjustListener);
+        _scrollController.position.isScrollingNotifier.addListener(automaticScrollAdjustListener!);
       });
     }
   }
@@ -109,25 +114,18 @@ class EventsMonthsState extends State<EventsMonths> {
   // if it's small scroll, like mouse wheel (web), not adjust (only possibility to differentiates mouse wheel to finger scroll)
   VoidCallback getAutomaticScrollAdjustListener() {
     return () {
-      scrollIsStopped = !scrollController.position.isScrollingNotifier.value;
-      if (scrollIsStopped &&
-          ((scrollStartOffset - scrollController.offset).abs() > 10)) {
-        var scroll = scrollController;
+      scrollIsStopped = !_scrollController.position.isScrollingNotifier.value;
+      if (scrollIsStopped && ((scrollStartOffset - _scrollController.offset).abs() > 10)) {
+        var scroll = _scrollController;
         if (!_blockAdjustScroll) {
           var adjustedOffset = _stickyPercent < 0.5
               ? scroll.offset - _stickyOffset + 1
-              : scroll.offset +
-                  (((1 - _stickyPercent) * _stickyOffset) / _stickyPercent) +
-                  1;
+              : scroll.offset + (((1 - _stickyPercent) * _stickyOffset) / _stickyPercent) + 1;
 
           Future.delayed(const Duration(milliseconds: 1), () {
             if (scrollIsStopped) {
               _blockAdjustScroll = true;
-              scroll.animateTo(
-                adjustedOffset,
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeIn,
-              );
+              scroll.animateTo(adjustedOffset, duration: const Duration(milliseconds: 200), curve: Curves.easeIn);
             }
           });
         } else {
@@ -153,46 +151,37 @@ class EventsMonthsState extends State<EventsMonths> {
         child: Column(
           children: [
             // week header
-            MonthHeader(
-              textDirection: widget.textDirection,
-              weekParam: widget.weekParam,
-            ),
+            MonthHeader(textDirection: widget.textDirection, weekParam: widget.weekParam),
 
             // months
             Expanded(
               child: ScrollConfiguration(
-                behavior: ScrollConfiguration.of(context).copyWith(
-                  scrollbars: widget.showWebScrollBar,
-                  dragDevices: PointerDeviceKind.values.toSet(),
-                ),
+                behavior: ScrollConfiguration.of(
+                  context,
+                ).copyWith(scrollbars: widget.showWebScrollBar, dragDevices: PointerDeviceKind.values.toSet()),
                 child: NotificationListener<ScrollNotification>(
                   onNotification: (notification) {
-                    if (widget.automaticAdjustScrollToStartOfMonth &&
-                        notification is ScrollStartNotification) {
-                      scrollStartOffset = scrollController.offset;
+                    if (widget.automaticAdjustScrollToStartOfMonth && notification is ScrollStartNotification) {
+                      scrollStartOffset = _scrollController.offset;
                     }
                     return true;
                   },
                   child: AbsorbPointer(
                     absorbing: isZoom ? _pointerDownCount > 1 : false,
                     child: InfiniteList(
-                      controller: scrollController,
+                      controller: _scrollController,
                       direction: InfiniteListDirection.multi,
                       negChildCount: widget.maxPreviousMonth,
                       posChildCount: widget.maxNextMonth,
-                      physics: isZoom && _pointerDownCount > 1
-                          ? const NeverScrollableScrollPhysics()
-                          : widget.verticalScrollPhysics,
+                      physics: isZoom && _pointerDownCount > 1 ? const NeverScrollableScrollPhysics() : widget.verticalScrollPhysics,
                       builder: (context, index) {
-                        var month = DateTime(
-                            initialMonth.year, initialMonth.month + index);
+                        var month = DateTime(initialMonth.year, initialMonth.month + index);
                         return InfiniteListItem(
                           headerStateBuilder: (context, state) {
                             if (state.sticky && _stickyMonth != month) {
                               _stickyMonth = month;
                               Future(() {
-                                widget.controller
-                                    .updateFocusedDay(_stickyMonth);
+                                widget.controller.updateFocusedDay(_stickyMonth);
                                 widget.onMonthChange?.call(_stickyMonth);
                               });
                             }
@@ -231,7 +220,7 @@ class EventsMonthsState extends State<EventsMonths> {
       setState(() {
         initialMonth = DateTime(date.year, date.month);
       });
-      scrollController.jumpTo(0);
+      _scrollController.jumpTo(0);
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         widget.controller.notifyListeners();
@@ -247,15 +236,13 @@ class EventsMonthsState extends State<EventsMonths> {
     var eventHeight = dayParam.eventHeight;
     var space = dayParam.eventSpacing;
     var beforeEventSpacing = dayParam.spaceBetweenHeaderAndEvents;
-    return ((dayHeight - headerHeight - beforeEventSpacing + space) /
-            (eventHeight + space))
-        .toInt();
+    return ((dayHeight - headerHeight - beforeEventSpacing + space) / (eventHeight + space)).toInt();
   }
 
   void _onScaleStart(ScaleStartDetails details) {
     if (details.pointerCount == 2) {
       weekHeightScaleStart = weekHeight;
-      scrollControllerOffsetScaleStart = scrollController.offset;
+      scrollControllerOffsetScaleStart = _scrollController.offset;
     }
   }
 
@@ -269,7 +256,7 @@ class EventsMonthsState extends State<EventsMonths> {
       if (minZoom <= newWeekHeight && newWeekHeight <= maxZoom) {
         setState(() {
           weekHeight = newWeekHeight;
-          scrollController.jumpTo(scrollControllerOffsetScaleStart * scale);
+          _scrollController.jumpTo(scrollControllerOffsetScaleStart * scale);
           maxEventsShowed = getMaxEventsCanBeShowed();
         });
       }
@@ -281,10 +268,11 @@ class EventsMonthsState extends State<EventsMonths> {
     widget.pinchToZoomParam.onZoomChange?.call(weekHeight);
     if (widget.automaticAdjustScrollToStartOfMonth) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        scrollController.position.isScrollingNotifier
-            .removeListener(automaticScrollAdjustListener);
-        scrollController.position.isScrollingNotifier
-            .addListener(automaticScrollAdjustListener);
+        if (!_scrollController.hasClients || automaticScrollAdjustListener == null) {
+          return;
+        }
+        _scrollController.position.isScrollingNotifier.removeListener(automaticScrollAdjustListener!);
+        _scrollController.position.isScrollingNotifier.addListener(automaticScrollAdjustListener!);
       });
     }
   }
@@ -299,6 +287,17 @@ class EventsMonthsState extends State<EventsMonths> {
     setState(() {
       _pointerDownCount--;
     });
+  }
+
+  @override
+  void dispose() {
+    if (_scrollController.hasClients && automaticScrollAdjustListener != null) {
+      _scrollController.position.isScrollingNotifier.removeListener(automaticScrollAdjustListener!);
+    }
+    if (_ownsScrollController) {
+      _scrollController.dispose();
+    }
+    super.dispose();
   }
 }
 
@@ -344,12 +343,7 @@ class WeekParam {
 
   static BoxDecoration defaultWeekDecoration(BuildContext context) {
     return BoxDecoration(
-      border: Border(
-        bottom: BorderSide(
-          width: 0.5,
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
-      ),
+      border: Border(bottom: BorderSide(width: 0.5, color: Theme.of(context).colorScheme.outlineVariant)),
     );
   }
 }
@@ -386,8 +380,7 @@ class DaysParam {
   /// day header text builder without change style
   final String Function(DateTime day)? dayHeaderTextBuilder;
 
-  final Widget Function(Event event, double? width, double? height)?
-      dayEventBuilder;
+  final Widget Function(Event event, double? width, double? height)? dayEventBuilder;
 
   final Widget Function(int count, DateTime day)? dayMoreEventsBuilder;
 
