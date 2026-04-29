@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'controller/months_view_controller.dart';
 import 'controller/events_controller.dart';
 import 'events/event.dart';
 import 'utils/list/models/alignments.dart';
@@ -25,6 +26,7 @@ class EventsMonths extends StatefulWidget {
     this.verticalScrollController,
     this.showWebScrollBar = false,
     this.pinchToZoomParam = const PinchToZoom(),
+    this.monthsViewController,
   });
 
   /// data controller
@@ -70,13 +72,19 @@ class EventsMonths extends StatefulWidget {
 
   final PinchToZoom pinchToZoomParam;
 
+  /// Optional months view controller for programmatic navigation.
+  ///
+  /// When null, this widget manages its own controller.
+  final MonthsViewController? monthsViewController;
+
   @override
   State createState() => EventsMonthsState();
 }
 
-class EventsMonthsState extends State<EventsMonths> {
+class EventsMonthsState extends State<EventsMonths> with TickerProviderStateMixin {
   late ScrollController _scrollController;
   late bool _ownsScrollController;
+  late MonthsViewController _monthsViewController;
   late DateTime initialMonth;
   late DateTime _stickyMonth;
   late double _stickyPercent;
@@ -90,6 +98,7 @@ class EventsMonthsState extends State<EventsMonths> {
   bool scrollIsStopped = true;
   int maxEventsShowed = 0;
   int _pointerDownCount = 0;
+  final Object _monthsViewControllerOwner = Object();
 
   @override
   void initState() {
@@ -100,6 +109,8 @@ class EventsMonthsState extends State<EventsMonths> {
     _stickyMonth = initialMonth;
     _ownsScrollController = widget.verticalScrollController == null;
     _scrollController = widget.verticalScrollController ?? ScrollController();
+    _monthsViewController = widget.monthsViewController ?? MonthsViewController();
+    _attachMonthsViewController();
     maxEventsShowed = getMaxEventsCanBeShowed();
 
     if (widget.automaticAdjustScrollToStartOfMonth) {
@@ -107,6 +118,16 @@ class EventsMonthsState extends State<EventsMonths> {
         automaticScrollAdjustListener = getAutomaticScrollAdjustListener();
         _scrollController.position.isScrollingNotifier.addListener(automaticScrollAdjustListener!);
       });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant EventsMonths oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.monthsViewController != widget.monthsViewController) {
+      _monthsViewController.detach(owner: _monthsViewControllerOwner);
+      _monthsViewController = widget.monthsViewController ?? MonthsViewController();
+      _attachMonthsViewController();
     }
   }
 
@@ -216,16 +237,7 @@ class EventsMonthsState extends State<EventsMonths> {
   /// jump to date
   /// change initial date and redraw all list
   void jumpToDate(DateTime date) {
-    if (context.mounted) {
-      setState(() {
-        initialMonth = DateTime(date.year, date.month);
-      });
-      _scrollController.jumpTo(0);
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        widget.controller.notifyListeners();
-      });
-    }
+    _jumpToDate(date);
   }
 
   /// get max row (events) can be showed to each day
@@ -299,7 +311,130 @@ class EventsMonthsState extends State<EventsMonths> {
     if (_ownsScrollController) {
       _scrollController.dispose();
     }
+    _monthsViewController.detach(owner: _monthsViewControllerOwner);
     super.dispose();
+  }
+
+  void _attachMonthsViewController() {
+    _monthsViewController.attach(
+      owner: _monthsViewControllerOwner,
+      animateToDate: _animateToDate,
+      jumpToDate: _jumpToDate,
+      animateToNextPage: _animateToNextPage,
+      animateToPreviousPage: _animateToPreviousPage,
+      jumpToNextPage: _jumpToNextPage,
+      jumpToPreviousPage: _jumpToPreviousPage,
+      animateToZoom: _animateToZoom,
+      jumpToZoom: _setWeekHeightImmediately,
+      zoomGetter: () => weekHeight,
+    );
+  }
+
+  double _monthOffsetFromDate(DateTime date) {
+    final monthDate = DateTime(date.year, date.month);
+    final yearDelta = monthDate.year - initialMonth.year;
+    final monthDelta = monthDate.month - initialMonth.month;
+    return ((yearDelta * 12) + monthDelta) * weekHeight;
+  }
+
+  double _clampVerticalOffset(double offset) {
+    if (!_scrollController.hasClients) {
+      return offset;
+    }
+    final min = _scrollController.position.minScrollExtent;
+    final max = _scrollController.position.maxScrollExtent;
+    return offset.clamp(min, max);
+  }
+
+  Future<void> _animateToDate(DateTime date, Duration duration, Curve curve) async {
+    if (!_scrollController.hasClients || !context.mounted) {
+      return;
+    }
+    final monthDay = DateTime(date.year, date.month);
+    final targetOffset = _clampVerticalOffset(_monthOffsetFromDate(monthDay));
+    await _scrollController.animateTo(targetOffset, duration: duration, curve: curve);
+    widget.controller.updateFocusedDay(monthDay);
+    widget.onMonthChange?.call(monthDay);
+  }
+
+  void _jumpToDate(DateTime date) {
+    if (!_scrollController.hasClients || !context.mounted) {
+      return;
+    }
+    final monthDay = DateTime(date.year, date.month);
+    final targetOffset = _clampVerticalOffset(_monthOffsetFromDate(monthDay));
+    _scrollController.jumpTo(targetOffset);
+    widget.controller.updateFocusedDay(monthDay);
+    widget.onMonthChange?.call(monthDay);
+  }
+
+  DateTime _getPagedTargetMonth(bool next) {
+    final delta = next ? 1 : -1;
+    final focused = widget.controller.focusedDay;
+    return DateTime(focused.year, focused.month + delta);
+  }
+
+  Future<void> _animateToNextPage(Duration duration, Curve curve) {
+    return _animateToDate(_getPagedTargetMonth(true), duration, curve);
+  }
+
+  Future<void> _animateToPreviousPage(Duration duration, Curve curve) {
+    return _animateToDate(_getPagedTargetMonth(false), duration, curve);
+  }
+
+  void _jumpToNextPage() {
+    _jumpToDate(_getPagedTargetMonth(true));
+  }
+
+  void _jumpToPreviousPage() {
+    _jumpToDate(_getPagedTargetMonth(false));
+  }
+
+  double _clampWeekHeight(double newWeekHeight) {
+    return newWeekHeight.clamp(
+      widget.pinchToZoomParam.pinchToZoomMinWeekHeight,
+      widget.pinchToZoomParam.pinchToZoomMaxWeekHeight,
+    );
+  }
+
+  Future<void> _animateToZoom(double newWeekHeight, Duration duration, Curve curve) async {
+    final target = _clampWeekHeight(newWeekHeight);
+    if (duration <= Duration.zero) {
+      _setWeekHeightImmediately(target);
+      return;
+    }
+
+    final start = weekHeight;
+    final animationController = AnimationController(vsync: this, duration: duration);
+    final animation = Tween<double>(begin: start, end: target).animate(CurvedAnimation(parent: animationController, curve: curve));
+    double previous = start;
+    void listener() {
+      final next = animation.value;
+      _setWeekHeightImmediately(next, oldWeekHeightOverride: previous);
+      previous = next;
+    }
+
+    animation.addListener(listener);
+    await animationController.forward();
+    animation.removeListener(listener);
+    animationController.dispose();
+    widget.pinchToZoomParam.onZoomChange?.call(weekHeight);
+  }
+
+  void _setWeekHeightImmediately(double newWeekHeight, {double? oldWeekHeightOverride}) {
+    final double clamped = _clampWeekHeight(newWeekHeight);
+    final double oldWeekHeight = oldWeekHeightOverride ?? weekHeight;
+    final double oldOffset = _scrollController.hasClients ? _scrollController.offset : 0;
+    final double mappedOffset = oldWeekHeight == 0 ? oldOffset : oldOffset * (clamped / oldWeekHeight);
+
+    setState(() {
+      weekHeight = clamped;
+      maxEventsShowed = getMaxEventsCanBeShowed();
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_clampVerticalOffset(mappedOffset));
+      }
+    });
+    widget.pinchToZoomParam.onZoomChange?.call(weekHeight);
   }
 }
 

@@ -14,7 +14,7 @@ class PlannerOneDay extends StatefulWidget {
 }
 
 class _PlannerOneDayState extends State<PlannerOneDay> {
-  GlobalKey<EventsPlannerState> oneDayViewKey = GlobalKey<EventsPlannerState>();
+  final PlannerViewController plannerViewController = PlannerViewController();
   late DateTime selectedDay;
 
   @override
@@ -39,8 +39,8 @@ class _PlannerOneDayState extends State<PlannerOneDay> {
         ),
         Expanded(
           child: EventsPlanner(
-            key: oneDayViewKey,
             controller: eventsController,
+            plannerViewController: plannerViewController,
             daysShowed: 1,
             heightPerMinute: heightPerMinute,
             initialVerticalScrollOffset: initialVerticalScrollOffset,
@@ -85,7 +85,7 @@ class _PlannerOneDayState extends State<PlannerOneDay> {
           this.selectedDay = selectedDay;
         });
         eventsController.updateFocusedDay(selectedDay);
-        oneDayViewKey.currentState?.jumpToDate(selectedDay);
+        plannerViewController.jumpToDate(selectedDay);
       },
     );
   }

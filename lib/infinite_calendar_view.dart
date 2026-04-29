@@ -6,6 +6,8 @@
 library infinite_calendar_view;
 
 export './src/controller/events_controller.dart';
+export './src/controller/months_view_controller.dart';
+export './src/controller/planner_view_controller.dart';
 export './src/events/event.dart';
 export './src/events/event_arranger.dart';
 export './src/events/side_events_arranger.dart';

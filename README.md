@@ -272,21 +272,55 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
    calendar
    view assigned to that controller.
 
-4. Use `GlobalKey` to jump to a specific date.
-   ```dart
-    GlobalKey<EventsPlannerState> key = GlobalKey<EventsPlannerState>();
-   ```
-   Add key in EventsPlanner or EventsList
-   ```dart
+4. Use dedicated view controllers for programmatic navigation.
+
+    Planner view controller:
+    ```dart
+    final plannerViewController = PlannerViewController();
+
     EventsPlanner(
-      key : key
-      ...
+       controller: controller,
+       plannerViewController: plannerViewController,
     )
-   ```
-   Jump to date
-   ```dart
-    key.currentState?.jumpToDate(DateTime(2024, 8, 10))
-   ```
+    ```
+
+    Programmatic planner actions:
+    ```dart
+    await plannerViewController.animateToDate(DateTime(2024, 8, 10));
+    await plannerViewController.nextPage();
+    await plannerViewController.previousPage();
+
+    await plannerViewController.animateToTime(
+       const TimeOfDay(hour: 9, minute: 30),
+    );
+    await plannerViewController.animateToNow();
+
+    await plannerViewController.animateToZoom(1.4);
+    plannerViewController.setZoom(1.0);
+    ```
+
+    Month view controller:
+    ```dart
+    final monthsViewController = MonthsViewController();
+
+    EventsMonths(
+       controller: controller,
+       monthsViewController: monthsViewController,
+    )
+    ```
+
+    Programmatic month actions:
+    ```dart
+    await monthsViewController.animateToDate(DateTime(2024, 8, 1));
+    await monthsViewController.nextPage();
+    await monthsViewController.previousPage();
+
+    await monthsViewController.animateToZoom(130);
+    monthsViewController.setZoom(117);
+    ```
+
+    If you do not pass a view controller, the widget creates one internally.
+    Pass your own instance when you need remote control from another widget.
 
 ## More on the infinite calendar view
 

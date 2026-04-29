@@ -315,25 +315,21 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
         if (naturalRight <= 0 || naturalLeft >= viewportWidth) continue;
       }
 
-      // For multi-day events: apply left-sticky behaviour so the title remains
-      // visible after the start day has scrolled off-screen (Google Calendar
-      // style). Only activate when:
-      //   1. The start day is genuinely off-screen (startIndex < firstVisibleIndex)
-      //   2. The event's right edge still has enough room for a meaningful title
-      //      (naturalRight > minWidth). Once the end day is nearly gone, drop
-      //      the clamp and let the Stack clip the event naturally — otherwise
-      //      the minWidth floor would push the event past its actual end day.
+      // For multi-day events: apply left-sticky behaviour as soon as the
+      // natural left edge scrolls off-screen, not only after the next whole day
+      // becomes the first visible index. Keep at least one day of width so the
+      // event contents are never squashed during the final-day exit.
       final double left;
       final double width;
-      if (daysSpan > 1 && startIndex < firstVisibleIndex) {
-        final double minWidth = widget.dayWidth - pad * 2;
-        if (naturalRight > minWidth) {
-          left = naturalLeft.clamp(0.0, viewportWidth - minWidth);
-          width = (naturalRight - left).clamp(minWidth, naturalWidth);
+      if (daysSpan > 1 && naturalLeft < 0) {
+        final minWidth = widget.dayWidth - pad * 2;
+        if (naturalRight >= minWidth) {
+          left = 0.0;
+          width = (naturalRight - left).clamp(minWidth, naturalWidth).toDouble();
         } else {
-          // Right edge nearly off-screen — clip naturally, no sticky.
-          left = naturalLeft;
-          width = naturalWidth;
+          // Keep a one-day event shape and let it scroll off with its true end.
+          left = naturalRight - minWidth;
+          width = minWidth;
         }
       } else {
         left = naturalLeft;

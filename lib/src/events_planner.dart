@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:infinite_calendar_view/src/utils/default_text.dart';
 
 import 'controller/events_controller.dart';
+import 'controller/planner_view_controller.dart';
 import 'events/event.dart';
 import 'events/event_arranger.dart';
 import 'events/side_events_arranger.dart';
@@ -51,6 +52,7 @@ class EventsPlanner extends StatefulWidget {
     this.currentHourIndicatorParam = const CurrentHourIndicatorParam(),
     this.offTimesParam = const OffTimesParam(),
     this.pinchToZoomParam = const PinchToZoomParameters(),
+    this.plannerViewController,
     this.fullDayParam = const FullDayParam(),
   });
 
@@ -156,6 +158,11 @@ class EventsPlanner extends StatefulWidget {
   ///  pinchToZoom parameters
   final PinchToZoomParameters pinchToZoomParam;
 
+  /// Optional planner view controller for programmatic navigation.
+  ///
+  /// When null, this widget manages its own controller.
+  final PlannerViewController? plannerViewController;
+
   // full day parameters
   final FullDayParam fullDayParam;
 
@@ -163,7 +170,7 @@ class EventsPlanner extends StatefulWidget {
   State createState() => EventsPlannerState();
 }
 
-class EventsPlannerState extends State<EventsPlanner> {
+class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMixin {
   late ScrollController mainHorizontalController;
   late ScrollController headersHorizontalController;
   final topLeftCellValueNotifier = ValueNotifier<DateTime>(DateTime.now());
@@ -171,10 +178,11 @@ class EventsPlannerState extends State<EventsPlanner> {
   late bool _ownsMainHorizontalController;
   late bool _ownsHeadersHorizontalController;
   late bool _ownsMainVerticalController;
+  late PlannerViewController _plannerViewController;
   late DateTime initialDate;
-  late double width;
-  late double height;
-  late double dayWidth;
+  double width = 0;
+  double height = 0;
+  double dayWidth = 0;
   late int currentIndex;
   late EventsController _controller;
   VoidCallback? automaticScrollAdjustListener;
@@ -189,6 +197,8 @@ class EventsPlannerState extends State<EventsPlanner> {
   var _plannerPointerDownCount = 0;
   var _isKeyboardZoomActive = false;
   var _startColumnIndex = 0;
+  Drag? _headerHorizontalDrag;
+  final Object _plannerViewControllerOwner = Object();
 
   PlannerTimeMapper get plannerTimeMapper => PlannerTimeMapper(
         heightPerMinute: heightPerMinute,
@@ -210,6 +220,8 @@ class EventsPlannerState extends State<EventsPlanner> {
     mainHorizontalController = widget.horizontalScrollController ?? ScrollController();
     headersHorizontalController = widget.headerHorizontalScrollController ?? ScrollController();
     mainVerticalController = widget.verticalScrollController ?? ScrollController(initialScrollOffset: widget.initialVerticalScrollOffset);
+    _plannerViewController = widget.plannerViewController ?? PlannerViewController();
+    _attachPlannerViewController();
 
     // synchronize horizontal scroll between days events / full day events / days header
     if (widget.daysHeaderParam.daysHeaderVisibility || widget.fullDayParam.fullDayEventsBarVisibility) {
@@ -267,8 +279,20 @@ class EventsPlannerState extends State<EventsPlanner> {
   }
 
   @override
+  void didUpdateWidget(covariant EventsPlanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.plannerViewController != widget.plannerViewController) {
+      _plannerViewController.detach(owner: _plannerViewControllerOwner);
+      _plannerViewController = widget.plannerViewController ?? PlannerViewController();
+      _attachPlannerViewController();
+    }
+  }
+
+  @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    _headerHorizontalDrag?.cancel();
+    _headerHorizontalDrag = null;
 
     if (_syncHorizontalControllersListener != null) {
       mainHorizontalController.removeListener(_syncHorizontalControllersListener!);
@@ -297,6 +321,7 @@ class EventsPlannerState extends State<EventsPlanner> {
     if (_ownsMainVerticalController) {
       mainVerticalController.dispose();
     }
+    _plannerViewController.detach(owner: _plannerViewControllerOwner);
     topLeftCellValueNotifier.dispose();
 
     super.dispose();
@@ -384,14 +409,24 @@ class EventsPlannerState extends State<EventsPlanner> {
           });
         }
 
+        final headerWidgets = [
+          // top days header
+          if (widget.daysHeaderParam.daysHeaderVisibility || widget.columnsParam.columns > 1)
+            getHorizontalDaysIndicatorWidget(_startColumnIndex, onColumnIndexChanged),
+
+          // full day events
+          if (widget.fullDayParam.fullDayEventsBarVisibility) getHorizontalFullDayEventsWidget(daySeparationWidthPadding, todayColor),
+        ];
+
         return Column(
           children: [
-            // top days header
-            if (widget.daysHeaderParam.daysHeaderVisibility || widget.columnsParam.columns > 1)
-              getHorizontalDaysIndicatorWidget(_startColumnIndex, onColumnIndexChanged),
-
-            // full day events
-            if (widget.fullDayParam.fullDayEventsBarVisibility) getHorizontalFullDayEventsWidget(daySeparationWidthPadding, todayColor),
+            if (headerWidgets.isNotEmpty)
+              _buildHeaderHorizontalDragArea(
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: headerWidgets,
+                ),
+              ),
 
             // days content
             Expanded(child: getPlannerAndTimesWidget(plannerHeight, currentHourIndicatorColor, todayColor, daySeparationWidthPadding)),
@@ -411,6 +446,43 @@ class EventsPlannerState extends State<EventsPlanner> {
 
   Color getDefaultHourIndicatorColor(BuildContext context) {
     return context.isDarkMode ? Theme.of(context).colorScheme.primary.lighten() : Theme.of(context).colorScheme.primary.darken();
+  }
+
+  Widget _buildHeaderHorizontalDragArea(Widget child) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: _onHeaderHorizontalDragStart,
+      onHorizontalDragUpdate: _onHeaderHorizontalDragUpdate,
+      onHorizontalDragEnd: _onHeaderHorizontalDragEnd,
+      onHorizontalDragCancel: _onHeaderHorizontalDragCancel,
+      child: child,
+    );
+  }
+
+  void _onHeaderHorizontalDragStart(DragStartDetails details) {
+    if (!mainHorizontalController.hasClients) {
+      return;
+    }
+    _headerHorizontalDrag?.cancel();
+    _headerHorizontalDrag = mainHorizontalController.position.drag(details, _disposeHeaderHorizontalDrag);
+  }
+
+  void _onHeaderHorizontalDragUpdate(DragUpdateDetails details) {
+    _headerHorizontalDrag?.update(details);
+  }
+
+  void _onHeaderHorizontalDragEnd(DragEndDetails details) {
+    _headerHorizontalDrag?.end(details);
+    _headerHorizontalDrag = null;
+  }
+
+  void _onHeaderHorizontalDragCancel() {
+    _headerHorizontalDrag?.cancel();
+    _headerHorizontalDrag = null;
+  }
+
+  void _disposeHeaderHorizontalDrag() {
+    _headerHorizontalDrag = null;
   }
 
   Widget getPlannerAndTimesWidget(double plannerHeight, Color currentHourIndicatorColor, Color todayColor, double daySeparationWidthPadding) {
@@ -653,27 +725,242 @@ class EventsPlannerState extends State<EventsPlanner> {
   }
 
   void updateHeightPerMinute(double heightPerMinute) {
-    setState(() {
-      this.heightPerMinute = heightPerMinute;
-    });
+    _setHeightPerMinuteImmediately(heightPerMinute);
   }
 
   void updateVerticalScrollOffset(double verticalScrollOffset) {
-    mainVerticalController.jumpTo(verticalScrollOffset);
+    _jumpToVerticalOffset(verticalScrollOffset);
   }
 
   void jumpToDate(DateTime date) {
-    if (context.mounted) {
-      // stop scroll listener for avoid change day listener
-      _listenHorizontalScrollDayChange = false;
-      var index = date.withoutTime.getDayDifference(initialDate);
-      var offset = index * dayWidth;
-      if (widget.textDirection == TextDirection.rtl) {
-        offset = -offset;
+    _jumpToDate(date);
+  }
+
+  void _attachPlannerViewController() {
+    _plannerViewController.attach(
+      owner: _plannerViewControllerOwner,
+      animateToDate: _animateToDate,
+      jumpToDate: _jumpToDate,
+      animateToNextPage: _animateToNextPage,
+      animateToPreviousPage: _animateToPreviousPage,
+      jumpToNextPage: _jumpToNextPage,
+      jumpToPreviousPage: _jumpToPreviousPage,
+      animateToTime: _animateToTime,
+      jumpToTime: _jumpToTime,
+      animateToZoom: _animateToZoom,
+      jumpToZoom: _setHeightPerMinuteImmediately,
+      zoomGetter: () => heightPerMinute,
+    );
+  }
+
+  double _dateToHorizontalOffset(DateTime date) {
+    var index = date.withoutTime.getDayDifference(initialDate);
+    var offset = index * dayWidth;
+    if (widget.textDirection == TextDirection.rtl) {
+      offset = -offset;
+    }
+    return offset;
+  }
+
+  DateTime _normalizeJumpTargetDate(DateTime date) {
+    final normalized = date.withoutTime;
+
+    if (widget.daysShowed == 7) {
+      return normalized.startOfWeek(widget.daysHeaderParam.startOfWeekDay);
+    }
+
+    if (widget.daysShowed == 3) {
+      // Keep selected day aligned with the first visible day.
+      return normalized.addCalendarDays(-1);
+    }
+
+    return normalized;
+  }
+
+  bool _isDayAlreadyVisible(DateTime day) {
+    final normalized = day.withoutTime;
+    final firstVisibleDay = topLeftCellValueNotifier.value.withoutTime;
+    final lastVisibleDay = firstVisibleDay.addCalendarDays(widget.daysShowed - 1);
+    return !normalized.isBefore(firstVisibleDay) && !normalized.isAfter(lastVisibleDay);
+  }
+
+  double _timeToVerticalOffset(TimeOfDay time) {
+    final minute = time.totalMinutes.toDouble();
+    final rawOffset = plannerTimeMapper.minuteToY(minute) + widget.dayParam.dayTopPadding;
+    return _alignVerticalOffsetToViewportAnchor(rawOffset);
+  }
+
+  double _alignVerticalOffsetToViewportAnchor(double rawOffset) {
+    if (!mainVerticalController.hasClients) {
+      return rawOffset;
+    }
+    final viewport = mainVerticalController.position.viewportDimension;
+    final anchor = _plannerViewController.verticalViewportAnchor;
+    return rawOffset - (viewport * anchor);
+  }
+
+  double _clampHorizontalOffset(double offset) {
+    if (!mainHorizontalController.hasClients) {
+      return offset;
+    }
+    final min = mainHorizontalController.position.minScrollExtent;
+    final max = mainHorizontalController.position.maxScrollExtent;
+    return offset.clamp(min, max);
+  }
+
+  double _clampVerticalOffset(double offset) {
+    if (!mainVerticalController.hasClients) {
+      return offset;
+    }
+    final min = mainVerticalController.position.minScrollExtent;
+    final max = mainVerticalController.position.maxScrollExtent;
+    return offset.clamp(min, max);
+  }
+
+  Future<void> _animateToDate(DateTime date, Duration duration, Curve curve) async {
+    if (!context.mounted || !mainHorizontalController.hasClients || dayWidth == 0) {
+      return;
+    }
+    if (_isDayAlreadyVisible(date)) {
+      widget.controller.updateFocusedDay(date.withoutTime);
+      return;
+    }
+    _listenHorizontalScrollDayChange = false;
+    try {
+      final targetDay = _normalizeJumpTargetDate(date);
+      final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
+      if ((offset - mainHorizontalController.offset).abs() < 0.001) {
+        return;
       }
-      mainHorizontalController.jumpTo(offset);
+      await mainHorizontalController.animateTo(offset, duration: duration, curve: curve);
+      final day = targetDay;
+      topLeftCellValueNotifier.value = day;
+      widget.controller.updateFocusedDay(day);
+      widget.onDayChange?.call(day);
+    } finally {
       _listenHorizontalScrollDayChange = true;
     }
+  }
+
+  void _jumpToDate(DateTime date) {
+    if (!context.mounted || !mainHorizontalController.hasClients || dayWidth == 0) {
+      return;
+    }
+    if (_isDayAlreadyVisible(date)) {
+      widget.controller.updateFocusedDay(date.withoutTime);
+      return;
+    }
+    final targetDay = _normalizeJumpTargetDate(date);
+    _listenHorizontalScrollDayChange = false;
+    final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
+    if ((offset - mainHorizontalController.offset).abs() < 0.001) {
+      _listenHorizontalScrollDayChange = true;
+      return;
+    }
+    mainHorizontalController.jumpTo(offset);
+    _listenHorizontalScrollDayChange = true;
+    final day = targetDay;
+    topLeftCellValueNotifier.value = day;
+    widget.controller.updateFocusedDay(day);
+    widget.onDayChange?.call(day);
+  }
+
+  DateTime _getPagedTargetDay(bool next) {
+    final delta = next ? widget.daysShowed : -widget.daysShowed;
+    return widget.controller.focusedDay.addCalendarDays(delta);
+  }
+
+  Future<void> _animateToNextPage(Duration duration, Curve curve) {
+    return _animateToDate(_getPagedTargetDay(true), duration, curve);
+  }
+
+  Future<void> _animateToPreviousPage(Duration duration, Curve curve) {
+    return _animateToDate(_getPagedTargetDay(false), duration, curve);
+  }
+
+  void _jumpToNextPage() {
+    _jumpToDate(_getPagedTargetDay(true));
+  }
+
+  void _jumpToPreviousPage() {
+    _jumpToDate(_getPagedTargetDay(false));
+  }
+
+  Future<void> _animateToTime(TimeOfDay time, Duration duration, Curve curve) async {
+    if (!context.mounted) {
+      return;
+    }
+
+    if (!mainVerticalController.hasClients) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!context.mounted || !mainVerticalController.hasClients) {
+        return;
+      }
+    }
+
+    final offset = _clampVerticalOffset(_timeToVerticalOffset(time));
+    await mainVerticalController.animateTo(offset, duration: duration, curve: curve);
+  }
+
+  void _jumpToTime(TimeOfDay time) {
+    _jumpToVerticalOffset(_timeToVerticalOffset(time));
+  }
+
+  double _clampZoom(double newHeightPerMinute) {
+    return newHeightPerMinute.clamp(
+      widget.pinchToZoomParam.pinchToZoomMinHeightPerMinute,
+      widget.pinchToZoomParam.pinchToZoomMaxHeightPerMinute,
+    );
+  }
+
+  Future<void> _animateToZoom(double newHeightPerMinute, Duration duration, Curve curve) async {
+    final target = _clampZoom(newHeightPerMinute);
+    if (duration <= Duration.zero) {
+      _setHeightPerMinuteImmediately(target);
+      return;
+    }
+
+    final start = heightPerMinute;
+    final animationController = AnimationController(vsync: this, duration: duration);
+    final animation = Tween<double>(begin: start, end: target).animate(CurvedAnimation(parent: animationController, curve: curve));
+    double previous = start;
+    void listener() {
+      final next = animation.value;
+      _setHeightPerMinuteImmediately(next, oldHeightPerMinuteOverride: previous);
+      previous = next;
+    }
+
+    animation.addListener(listener);
+    await animationController.forward();
+    animation.removeListener(listener);
+    animationController.dispose();
+    widget.pinchToZoomParam.onZoomChange?.call(heightPerMinute);
+  }
+
+  void _setHeightPerMinuteImmediately(double newHeightPerMinute, {double? oldHeightPerMinuteOverride}) {
+    final double clamped = _clampZoom(newHeightPerMinute);
+    final double oldHeight = oldHeightPerMinuteOverride ?? heightPerMinute;
+    final double oldOffset = mainVerticalController.hasClients ? mainVerticalController.offset : 0;
+    final double mappedOffset = _mapOffsetForNewHeightPerMinute(
+      oldOffset: oldOffset,
+      oldHeightPerMinute: oldHeight,
+      newHeightPerMinute: clamped,
+    );
+
+    setState(() {
+      heightPerMinute = clamped;
+      if (mainVerticalController.hasClients) {
+        mainVerticalController.jumpTo(_clampVerticalOffset(mappedOffset));
+      }
+    });
+    widget.pinchToZoomParam.onZoomChange?.call(heightPerMinute);
+  }
+
+  void _jumpToVerticalOffset(double verticalScrollOffset) {
+    if (!mainVerticalController.hasClients) {
+      return;
+    }
+    mainVerticalController.jumpTo(_clampVerticalOffset(verticalScrollOffset));
   }
 }
 
@@ -825,6 +1112,7 @@ class DaysHeaderParam {
   const DaysHeaderParam({
     this.daysHeaderVisibility = true,
     this.daysHeaderHeight = 40.0,
+    this.startOfWeekDay = 7,
     this.daysHeaderColor,
     this.daysHeaderForegroundColor,
     this.dayHeaderBuilder,
@@ -837,6 +1125,9 @@ class DaysHeaderParam {
 
   /// days top bar height
   final double daysHeaderHeight;
+
+  /// start day of week : 1 = monday, 7 = sunday
+  final int startOfWeekDay;
 
   /// day top bar background color
   final Color? daysHeaderColor;
