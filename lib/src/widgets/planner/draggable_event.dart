@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../events/event.dart';
 import '../../events_planner.dart';
 import '../../utils/extension.dart';
+import '../../utils/planner_time_mapper.dart';
 
 class DraggableEventWidget extends StatelessWidget {
   const DraggableEventWidget({
@@ -70,22 +71,20 @@ class DraggableEventWidget extends StatelessWidget {
 
         // find day
         var dayWidth = plannerState?.dayWidth ?? 0;
-        var heightPerMinute = plannerState?.heightPerMinute ?? 0;
         var scrollOffsetX = plannerState?.mainHorizontalController.offset ?? 0;
         var releaseOffsetX = scrollOffsetX + relativeOffset.dx;
         var dayIndex = (releaseOffsetX / dayWidth).toInt();
         // adjust negative index, because current day begin 0 and negative begin -1
         var reallyDayIndex = releaseOffsetX >= 0 ? dayIndex : dayIndex - 1;
-        var currentDay = plannerState?.initialDate
-                .addCalendarDays(reallyDayIndex)
-                .withoutTime ??
-            event.startTime.withoutTime;
+        var currentDay = plannerState?.initialDate.addCalendarDays(reallyDayIndex).withoutTime ?? event.startTime.withoutTime;
 
         // find hour
         var scrollOffsetY = plannerState?.mainVerticalController.offset ?? 0;
-        var difference = (details.offset.dy - oldPositionY) +
-            (scrollOffsetY - oldVerticalOffset);
-        var minuteDiff = difference / heightPerMinute;
+        var difference = (details.offset.dy - oldPositionY) + (scrollOffsetY - oldVerticalOffset);
+        final timeMapper = plannerState?.plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: plannerState?.heightPerMinute ?? 1);
+        final eventStartMinute = event.startTime.totalMinutes.toDouble();
+        final startY = timeMapper.minuteToY(eventStartMinute);
+        final minuteDiff = timeMapper.yToMinute(startY + difference) - eventStartMinute;
 
         // exact event time
         var duration = event.endTime!.difference(event.startTime).inMinutes;
@@ -102,12 +101,9 @@ class DraggableEventWidget extends StatelessWidget {
 
         // round event time to nearest multiple of onSlotMinutesRound minutes
         var totalMinutes = exactStartDateTime.totalMinutes;
-        var totalMinutesRound =
-            onSlotMinutesRound * (totalMinutes / onSlotMinutesRound).round();
-        var roundStartDateTime =
-            currentDay.add(Duration(minutes: totalMinutesRound));
-        var roundEndDateTime =
-            roundStartDateTime.add(Duration(minutes: duration));
+        var totalMinutesRound = onSlotMinutesRound * (totalMinutes / onSlotMinutesRound).round();
+        var roundStartDateTime = currentDay.add(Duration(minutes: totalMinutesRound));
+        var roundEndDateTime = roundStartDateTime.add(Duration(minutes: duration));
 
         // find column
         var columnIndex = 0;
@@ -122,15 +118,13 @@ class DraggableEventWidget extends StatelessWidget {
           }
         }
 
-        onDragEnd.call(columnIndex, exactStartDateTime, exactEndDateTime,
-            roundStartDateTime, roundEndDateTime);
+        onDragEnd.call(columnIndex, exactStartDateTime, exactEndDateTime, roundStartDateTime, roundEndDateTime);
       },
       child: child,
     );
   }
 
-  void manageHorizontalScroll(EventsPlannerState? plannerState,
-      BuildContext context, DragUpdateDetails details) {
+  void manageHorizontalScroll(EventsPlannerState? plannerState, BuildContext context, DragUpdateDetails details) {
     if (plannerState != null) {
       var horizontalController = plannerState.mainHorizontalController;
       var verticalController = plannerState.mainVerticalController;

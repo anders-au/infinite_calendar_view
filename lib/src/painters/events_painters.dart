@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../infinite_calendar_view.dart';
+import '../utils/planner_time_mapper.dart';
 
 class LinesPainter extends CustomPainter {
   const LinesPainter({
     required this.heightPerMinute,
+    this.plannerTimeMapper,
     required this.isToday,
     required this.lineColor,
     this.hourStrokeWidth = 0.5,
@@ -19,6 +21,7 @@ class LinesPainter extends CustomPainter {
   });
 
   final double heightPerMinute;
+  final PlannerTimeMapper? plannerTimeMapper;
   final bool isToday;
   final Color lineColor;
   final double hourStrokeWidth;
@@ -31,9 +34,11 @@ class LinesPainter extends CustomPainter {
   final bool drawVerticalRightLine;
   final TextPainter? slotPainter;
 
+  PlannerTimeMapper get _mapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
+
   @override
   void paint(Canvas canvas, Size size) {
-    var cellHeight = heightPerMinute * 60;
+    final mapper = _mapper;
 
     final hourPaint = Paint()
       ..color = lineColor
@@ -52,41 +57,40 @@ class LinesPainter extends CustomPainter {
       ..strokeWidth = verticalStrokeWidth;
 
     for (var i = 0; i < 24; i++) {
-      final hourY = i * cellHeight;
+      final startMinute = i * 60;
+      final endMinute = (i + 1) * 60;
+      final hourY = mapper.minuteToY(startMinute.toDouble());
       canvas.drawLine(Offset(0, hourY), Offset(size.width, hourY), hourPaint);
 
       if (slotPainter != null) {
         slotPainter?.layout();
         final dx = (size.width - slotPainter!.width) / 2;
+        final cellHeight = mapper.minuteToY(endMinute.toDouble()) - hourY;
         final dy = hourY + (cellHeight - slotPainter!.height) / 2;
         slotPainter?.paint(canvas, Offset(dx, dy));
       }
 
       if (drawHalfHour) {
-        final halfHourY = hourY + cellHeight / 2;
-        canvas.drawLine(
-            Offset(0, halfHourY), Offset(size.width, halfHourY), halfHourPaint);
+        final halfHourY = mapper.minuteToY((startMinute + 30).toDouble());
+        canvas.drawLine(Offset(0, halfHourY), Offset(size.width, halfHourY), halfHourPaint);
       }
 
       if (drawQuarterHour && heightPerMinute > 2) {
-        final quarterHourY15 = hourY + cellHeight / 4;
-        final quarterHourY45 = hourY + (cellHeight / 4) * 3;
-        canvas.drawLine(Offset(0, quarterHourY15),
-            Offset(size.width, quarterHourY15), quarterHourPaint);
-        canvas.drawLine(Offset(0, quarterHourY45),
-            Offset(size.width, quarterHourY45), quarterHourPaint);
+        final quarterHourY15 = mapper.minuteToY((startMinute + 15).toDouble());
+        final quarterHourY45 = mapper.minuteToY((startMinute + 45).toDouble());
+        canvas.drawLine(Offset(0, quarterHourY15), Offset(size.width, quarterHourY15), quarterHourPaint);
+        canvas.drawLine(Offset(0, quarterHourY45), Offset(size.width, quarterHourY45), quarterHourPaint);
       }
     }
     // draw 24:00
-    canvas.drawLine(Offset(0, 24 * cellHeight),
-        Offset(size.width, 24 * cellHeight), hourPaint);
+    final dayEndY = mapper.minuteToY((24 * 60).toDouble());
+    canvas.drawLine(Offset(0, dayEndY), Offset(size.width, dayEndY), hourPaint);
 
     if (drawVerticalLeftLine) {
       canvas.drawLine(Offset(0, 0), Offset(0, size.height), verticalPaint);
     }
     if (drawVerticalRightLine) {
-      canvas.drawLine(Offset(size.width, 0), Offset(size.width, size.height),
-          verticalPaint);
+      canvas.drawLine(Offset(size.width, 0), Offset(size.width, size.height), verticalPaint);
     }
   }
 
@@ -95,11 +99,14 @@ class LinesPainter extends CustomPainter {
 }
 
 class TimeIndicatorPainter extends CustomPainter {
-  const TimeIndicatorPainter(this.heightPerMinute, this.isToday, this.color);
+  const TimeIndicatorPainter(this.heightPerMinute, this.isToday, this.color, {this.plannerTimeMapper});
 
   final double heightPerMinute;
   final bool isToday;
   final Color color;
+  final PlannerTimeMapper? plannerTimeMapper;
+
+  PlannerTimeMapper get _mapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -110,10 +117,8 @@ class TimeIndicatorPainter extends CustomPainter {
       final currentTimePaint = Paint()
         ..color = color
         ..strokeWidth = 0.75;
-      var currentTimeLineY =
-          heightPerMinute * (currentTime.hour * 60 + currentTime.minute);
-      canvas.drawLine(Offset(0, currentTimeLineY),
-          Offset(size.width, currentTimeLineY), currentTimePaint);
+      var currentTimeLineY = _mapper.minuteToY((currentTime.hour * 60 + currentTime.minute).toDouble());
+      canvas.drawLine(Offset(0, currentTimeLineY), Offset(size.width, currentTimeLineY), currentTimePaint);
       canvas.drawCircle(Offset(1, currentTimeLineY), 3, currentTimePaint);
     }
   }
@@ -125,6 +130,7 @@ class TimeIndicatorPainter extends CustomPainter {
 class HoursPainter extends CustomPainter {
   const HoursPainter({
     required this.heightPerMinute,
+    this.plannerTimeMapper,
     this.textDirection = TextDirection.ltr,
     this.showCurrentHour = true,
     this.hourColor = Colors.black12,
@@ -137,6 +143,7 @@ class HoursPainter extends CustomPainter {
   });
 
   final double heightPerMinute;
+  final PlannerTimeMapper? plannerTimeMapper;
   final TextDirection textDirection;
   final bool showCurrentHour;
   final Color hourColor;
@@ -145,67 +152,57 @@ class HoursPainter extends CustomPainter {
   final Color currentHourIndicatorColor;
   final double halfHourMinHeightPerMinute;
   final double quarterHourMinHeightPerMinute;
-  final TextPainter Function(TimeOfDay time, Color defaultColor)?
-      textPainterBuilder;
+  final TextPainter Function(TimeOfDay time, Color defaultColor)? textPainterBuilder;
+
+  PlannerTimeMapper get _mapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
   void paint(Canvas canvas, Size size) {
-    var cellHeight = heightPerMinute * 60;
+    final mapper = _mapper;
 
     // draw currentHour
     var currentTime = TimeOfDay.now();
     if (showCurrentHour) {
-      drawHour(
-          canvas,
-          size,
-          currentTime,
-          currentTime.totalMinutes * heightPerMinute,
-          currentHourIndicatorColor);
+      drawHour(canvas, size, currentTime, mapper.minuteToY(currentTime.totalMinutes.toDouble()), currentHourIndicatorColor);
     }
 
     // draw normal hour
     for (var i = 0; i <= 23; i++) {
       // hour
-      final hourY = (i * cellHeight) + 4;
+      final hourY = mapper.minuteToY((i * 60).toDouble()) + 4;
       if (!isHideByCurrentTime(currentTime, hourY)) {
         drawHour(canvas, size, TimeOfDay(hour: i, minute: 0), hourY, hourColor);
       }
 
       // half
-      final halfY = hourY + (cellHeight / 2);
-      if (heightPerMinute > halfHourMinHeightPerMinute &&
-          !isHideByCurrentTime(currentTime, halfY)) {
-        drawHour(
-            canvas, size, TimeOfDay(hour: i, minute: 30), halfY, halfHourColor);
+      final halfY = mapper.minuteToY(((i * 60) + 30).toDouble()) + 4;
+      if (heightPerMinute > halfHourMinHeightPerMinute && !isHideByCurrentTime(currentTime, halfY)) {
+        drawHour(canvas, size, TimeOfDay(hour: i, minute: 30), halfY, halfHourColor);
       }
 
       // quart15
-      final quarterY15 = hourY + (cellHeight / 4);
-      if (heightPerMinute > quarterHourMinHeightPerMinute &&
-          !isHideByCurrentTime(currentTime, quarterY15)) {
-        drawHour(canvas, size, TimeOfDay(hour: i, minute: 15), quarterY15,
-            quarterHourColor);
+      final quarterY15 = mapper.minuteToY(((i * 60) + 15).toDouble()) + 4;
+      if (heightPerMinute > quarterHourMinHeightPerMinute && !isHideByCurrentTime(currentTime, quarterY15)) {
+        drawHour(canvas, size, TimeOfDay(hour: i, minute: 15), quarterY15, quarterHourColor);
       }
 
       // quart45
-      final quarterY45 = hourY + (cellHeight / 4) * 3;
-      if (heightPerMinute > quarterHourMinHeightPerMinute &&
-          !isHideByCurrentTime(currentTime, quarterY45)) {
-        drawHour(canvas, size, TimeOfDay(hour: i, minute: 45), quarterY45,
-            quarterHourColor);
+      final quarterY45 = mapper.minuteToY(((i * 60) + 45).toDouble()) + 4;
+      if (heightPerMinute > quarterHourMinHeightPerMinute && !isHideByCurrentTime(currentTime, quarterY45)) {
+        drawHour(canvas, size, TimeOfDay(hour: i, minute: 45), quarterY45, quarterHourColor);
       }
     }
 
     // 24:00 hour
-    final hourY = (24 * cellHeight) + 4;
+    final hourY = mapper.minuteToY((24 * 60).toDouble()) + 4;
     if (!isHideByCurrentTime(currentTime, hourY)) {
       drawHour(canvas, size, TimeOfDay(hour: 24, minute: 0), hourY, hourColor);
     }
   }
 
   bool isHideByCurrentTime(TimeOfDay currentTime, double y) {
-    return showCurrentHour &&
-        ((currentTime.totalMinutes * heightPerMinute) - y).abs() <= 10;
+    final currentY = _mapper.minuteToY(currentTime.totalMinutes.toDouble());
+    return showCurrentHour && (currentY - y).abs() <= 10;
   }
 
   void drawHour(
@@ -215,8 +212,7 @@ class HoursPainter extends CustomPainter {
     double y,
     Color color,
   ) {
-    var textPainter = textPainterBuilder?.call(time, color) ??
-        getDefaultTextPainter(time, color);
+    var textPainter = textPainterBuilder?.call(time, color) ?? getDefaultTextPainter(time, color);
     textPainter.layout(
       minWidth: size.width,
       maxWidth: size.width,
@@ -231,8 +227,7 @@ class HoursPainter extends CustomPainter {
         style: TextStyle(color: color, fontSize: 12),
       ),
       textDirection: textDirection,
-      textAlign:
-          textDirection == TextDirection.ltr ? TextAlign.right : TextAlign.left,
+      textAlign: textDirection == TextDirection.ltr ? TextAlign.right : TextAlign.left,
     );
   }
 
@@ -247,6 +242,7 @@ class OffSetAllDaysPainter extends CustomPainter {
     this.offTimesRanges,
     this.offTimesColor, {
     this.paintToday = false,
+    this.plannerTimeMapper,
   });
 
   final bool isToday;
@@ -254,15 +250,19 @@ class OffSetAllDaysPainter extends CustomPainter {
   final double heightPerMinute;
   final List<OffTimeRange> offTimesRanges;
   final Color offTimesColor;
+  final PlannerTimeMapper? plannerTimeMapper;
+
+  PlannerTimeMapper get _mapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
   void paint(Canvas canvas, Size size) {
     if (!isToday || paintToday) {
       final paint = Paint()..color = offTimesColor;
+      final mapper = _mapper;
 
       for (var range in offTimesRanges) {
-        var startY = range.start.totalMinutes * heightPerMinute;
-        var endY = range.end.totalMinutes * heightPerMinute;
+        var startY = mapper.minuteToY(range.start.totalMinutes.toDouble());
+        var endY = mapper.minuteToY(range.end.totalMinutes.toDouble());
         canvas.drawRect(
           Rect.fromPoints(Offset(0, startY), Offset(size.width, endY)),
           paint,
@@ -291,8 +291,7 @@ class ColumnPainter extends CustomPainter {
     var columnsTotalWidth = 0.0;
     final paint = Paint()..color = lineColor;
     for (var i = 0; i <= columnsParam.columns; i++) {
-      canvas.drawLine(Offset(columnsTotalWidth, 0),
-          Offset(columnsTotalWidth, size.height), paint);
+      canvas.drawLine(Offset(columnsTotalWidth, 0), Offset(columnsTotalWidth, size.height), paint);
 
       if (i != columnsParam.columns) {
         var columnWidth = columnsParam.getColumSize(width, i);

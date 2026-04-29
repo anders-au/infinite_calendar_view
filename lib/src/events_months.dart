@@ -164,7 +164,7 @@ class EventsMonthsState extends State<EventsMonths> {
                     if (widget.automaticAdjustScrollToStartOfMonth && notification is ScrollStartNotification) {
                       scrollStartOffset = _scrollController.offset;
                     }
-                    return true;
+                    return false;
                   },
                   child: AbsorbPointer(
                     absorbing: isZoom ? _pointerDownCount > 1 : false,

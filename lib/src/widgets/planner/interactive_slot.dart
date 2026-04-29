@@ -2,6 +2,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:infinite_calendar_view/infinite_calendar_view.dart';
 
+import '../../utils/planner_time_mapper.dart';
+
 class InteractiveSlot extends StatefulWidget {
   const InteractiveSlot({
     super.key,
@@ -10,6 +12,7 @@ class InteractiveSlot extends StatefulWidget {
     required this.dayParam,
     required this.columnsParam,
     required this.heightPerMinute,
+    this.plannerTimeMapper,
     required this.onChanged,
   });
 
@@ -18,7 +21,10 @@ class InteractiveSlot extends StatefulWidget {
   final DayParam dayParam;
   final ColumnsParam columnsParam;
   final double heightPerMinute;
+  final PlannerTimeMapper? plannerTimeMapper;
   final void Function(SlotSelection? updatedSlot) onChanged;
+
+  PlannerTimeMapper get timeMapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
   State<InteractiveSlot> createState() => _InteractiveSlotState();
@@ -51,28 +57,22 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
         if (slotSelectionParam.canDragSlotSelectionAfterShow) {
           var slotSelection = widget.slot;
           var round = widget.dayParam.onSlotMinutesRound;
-          final minutesDelta =
-              details.localOffsetFromOrigin.dy / widget.heightPerMinute;
-          var minutesDeltaRound = widget.dayParam.onSlotRoundAlwaysBefore
-              ? round * (minutesDelta / round).floor()
-              : round * (minutesDelta / round).round();
-          final daysDelta =
-              (details.localOffsetFromOrigin.dx / widget.dayWidth).round();
-          final newStart = initialStartDateTime
-              .add(Duration(days: daysDelta, minutes: minutesDeltaRound));
-          widget.onChanged(SlotSelection(
-              slotSelection.columnIndex,
-              slotSelection.initialStartDateTime,
-              newStart,
-              slotSelection.durationInMinutes));
+          final initialMinute = initialStartDateTime.totalMinutes.toDouble();
+          final initialY = widget.timeMapper.minuteToY(initialMinute);
+          final currentMinute = widget.timeMapper.yToMinute(initialY + details.localOffsetFromOrigin.dy);
+          final minutesDelta = currentMinute - initialMinute;
+          var minutesDeltaRound =
+              widget.dayParam.onSlotRoundAlwaysBefore ? round * (minutesDelta / round).floor() : round * (minutesDelta / round).round();
+          final daysDelta = (details.localOffsetFromOrigin.dx / widget.dayWidth).round();
+          final newStart = initialStartDateTime.add(Duration(days: daysDelta, minutes: minutesDeltaRound));
+          widget.onChanged(SlotSelection(slotSelection.columnIndex, slotSelection.initialStartDateTime, newStart, slotSelection.durationInMinutes));
         }
       },
       child: Stack(
         children: [
           // slot build
           Positioned.fill(
-            child: slotSelectionParam.slotSelectionContentBuilder
-                    ?.call(widget.slot) ??
+            child: slotSelectionParam.slotSelectionContentBuilder?.call(widget.slot) ??
                 Container(
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.primary.withAlpha(80),
@@ -106,14 +106,13 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
                 gestures: {
                   VerticalDragGestureRecognizer: getTopHandleGesture(),
                 },
-                child:
-                    slotSelectionParam.slotSelectionTopHandleBuilder?.call() ??
-                        Container(
-                          height: 15,
-                          width: double.infinity,
-                          color: Colors.transparent,
-                          child: const Icon(Icons.drag_handle, size: 12),
-                        ),
+                child: slotSelectionParam.slotSelectionTopHandleBuilder?.call() ??
+                    Container(
+                      height: 15,
+                      width: double.infinity,
+                      color: Colors.transparent,
+                      child: const Icon(Icons.drag_handle, size: 12),
+                    ),
               ),
             ),
 
@@ -125,8 +124,7 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
                 gestures: {
                   VerticalDragGestureRecognizer: getBottomHandleGesture(),
                 },
-                child: slotSelectionParam.slotSelectionBottomHandleBuilder
-                        ?.call() ??
+                child: slotSelectionParam.slotSelectionBottomHandleBuilder?.call() ??
                     Container(
                       height: 15,
                       width: double.infinity,
@@ -140,32 +138,27 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     );
   }
 
-  GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>
-      getTopHandleGesture() {
+  GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer> getTopHandleGesture() {
     return GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
       () => VerticalDragGestureRecognizer(),
       (instance) {
         instance.onStart = (details) {
           startHandleStartDate = widget.slot.startDateTime;
-          startHandleEndDate = widget.slot.startDateTime
-              .add(Duration(minutes: widget.slot.durationInMinutes));
+          startHandleEndDate = widget.slot.startDateTime.add(Duration(minutes: widget.slot.durationInMinutes));
           startHandleY = details.localPosition.dy;
         };
         instance.onUpdate = (details) {
           if (startHandleY != 0) {
             final round = widget.dayParam.onSlotMinutesRound;
-            final minutesDelta = ((details.localPosition.dy - startHandleY) /
-                    widget.heightPerMinute)
-                .round();
+            final startMinute = startHandleStartDate.totalMinutes.toDouble();
+            final startY = widget.timeMapper.minuteToY(startMinute);
+            final currentMinute = widget.timeMapper.yToMinute(startY + (details.localPosition.dy - startHandleY));
+            final minutesDelta = (currentMinute - startMinute).round();
             final minutesDeltaRounded = round * (minutesDelta / round).round();
-            final newStart = startHandleStartDate
-                .add(Duration(minutes: minutesDeltaRounded));
-            final newDuration =
-                startHandleEndDate.totalMinutes - newStart.totalMinutes;
-            if (newDuration != widget.slot.durationInMinutes &&
-                newDuration >= round) {
-              widget.onChanged(SlotSelection(widget.slot.columnIndex,
-                  widget.slot.initialStartDateTime, newStart, newDuration));
+            final newStart = startHandleStartDate.add(Duration(minutes: minutesDeltaRounded));
+            final newDuration = startHandleEndDate.totalMinutes - newStart.totalMinutes;
+            if (newDuration != widget.slot.durationInMinutes && newDuration >= round) {
+              widget.onChanged(SlotSelection(widget.slot.columnIndex, widget.slot.initialStartDateTime, newStart, newDuration));
             }
           }
         };
@@ -178,8 +171,7 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     );
   }
 
-  GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>
-      getBottomHandleGesture() {
+  GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer> getBottomHandleGesture() {
     return GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
       () => VerticalDragGestureRecognizer(),
       (instance) {
@@ -189,14 +181,13 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
         };
         instance.onUpdate = (details) {
           if (startHandleY != 0) {
-            final minutesDelta = ((details.localPosition.dy - startHandleY) /
-                    widget.heightPerMinute)
-                .round();
-            final minutesDeltaRounded = widget.dayParam.onSlotMinutesRound *
-                (minutesDelta / widget.dayParam.onSlotMinutesRound).round();
+            final startMinute = (widget.slot.startDateTime.totalMinutes + startHandleDuration).toDouble();
+            final startY = widget.timeMapper.minuteToY(startMinute);
+            final currentMinute = widget.timeMapper.yToMinute(startY + (details.localPosition.dy - startHandleY));
+            final minutesDelta = (currentMinute - startMinute).round();
+            final minutesDeltaRounded = widget.dayParam.onSlotMinutesRound * (minutesDelta / widget.dayParam.onSlotMinutesRound).round();
             final newDuration = startHandleDuration + minutesDeltaRounded;
-            if (newDuration != widget.slot.durationInMinutes &&
-                newDuration >= widget.dayParam.onSlotMinutesRound) {
+            if (newDuration != widget.slot.durationInMinutes && newDuration >= widget.dayParam.onSlotMinutesRound) {
               widget.onChanged(SlotSelection(
                 widget.slot.columnIndex,
                 widget.slot.initialStartDateTime,
@@ -222,8 +213,7 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     var startText = "${start.hour.toTimeText()}:${start.minute.toTimeText()}";
     var endText = "${end.hour.toTimeText()}:${end.minute.toTimeText()}";
     var remainedMinutes = slot.durationInMinutes % 60;
-    var durationText = (duration.inHours >= 1 ? "${duration.inHours}h " : "") +
-        (remainedMinutes != 0 ? "${remainedMinutes}m " : "");
+    var durationText = (duration.inHours >= 1 ? "${duration.inHours}h " : "") + (remainedMinutes != 0 ? "${remainedMinutes}m " : "");
     return "$startText - $endText\n$durationText";
   }
 }

@@ -10,6 +10,7 @@ import 'events/event.dart';
 import 'events/event_arranger.dart';
 import 'events/side_events_arranger.dart';
 import 'utils/extension.dart';
+import 'utils/planner_time_mapper.dart';
 import 'utils/list/infinite_list.dart';
 import 'utils/list/models/alignments.dart';
 import 'widgets/planner/day_widget.dart';
@@ -27,6 +28,8 @@ class EventsPlanner extends StatefulWidget {
     this.maxPreviousDays = 365,
     this.maxNextDays = 365,
     this.heightPerMinute = 0.9,
+    this.hourCellGapPx = 0,
+    this.paintGapAfterLastHour = false,
     this.daySeparationWidth = 3.0,
     this.dayEventsArranger = const SideEventArranger(),
     this.onDayChange,
@@ -74,6 +77,12 @@ class EventsPlanner extends StatefulWidget {
 
   /// Height per minute in day
   final double heightPerMinute;
+
+  /// Visual spacing between hour cells in planner.
+  final double hourCellGapPx;
+
+  /// Whether to paint an additional gap after the last hour (23:00-24:00).
+  final bool paintGapAfterLastHour;
 
   /// separation between two day
   final double daySeparationWidth;
@@ -181,6 +190,12 @@ class EventsPlannerState extends State<EventsPlanner> {
   var _isKeyboardZoomActive = false;
   var _startColumnIndex = 0;
 
+  PlannerTimeMapper get plannerTimeMapper => PlannerTimeMapper(
+        heightPerMinute: heightPerMinute,
+        hourCellGapPx: widget.hourCellGapPx,
+        paintGapAfterLastHour: widget.paintGapAfterLastHour,
+      );
+
   @override
   void initState() {
     super.initState();
@@ -235,7 +250,7 @@ class EventsPlannerState extends State<EventsPlanner> {
             }
             if (maxOffset != null) {
               var maxScrollExtent = mainVerticalController.position.maxScrollExtent;
-              var dayOffset = heightPerMinute * 60 * 24;
+              var dayOffset = plannerTimeMapper.totalDayHeight();
               var maxOffsetExtend = maxScrollExtent - (dayOffset - maxOffset);
               if (mainVerticalController.offset > maxOffsetExtend) {
                 mainVerticalController.jumpTo(maxOffsetExtend);
@@ -298,9 +313,8 @@ class EventsPlannerState extends State<EventsPlanner> {
         // only when index has changed
         if (index != currentIndex) {
           currentIndex = index;
-          var currentDay = widget.textDirection == TextDirection.ltr
-              ? getDayFromIndex(currentIndex)
-              : getDayFromIndex(currentIndex + widget.daysShowed - 1);
+          var currentDay =
+              widget.textDirection == TextDirection.ltr ? getDayFromIndex(currentIndex) : getDayFromIndex(currentIndex + widget.daysShowed - 1);
           widget.onDayChange?.call(currentDay);
           widget.controller.updateFocusedDay(currentDay);
           topLeftCellValueNotifier.value = currentDay;
@@ -339,8 +353,7 @@ class EventsPlannerState extends State<EventsPlanner> {
 
     //  listen ctrl or cmd key to zoom in web/desktop
     if (widget.pinchToZoomParam.pinchToZoom) {
-      final isModifierPressed =
-          pressed.contains(LogicalKeyboardKey.controlLeft) ||
+      final isModifierPressed = pressed.contains(LogicalKeyboardKey.controlLeft) ||
           pressed.contains(LogicalKeyboardKey.controlRight) ||
           pressed.contains(LogicalKeyboardKey.metaLeft) ||
           pressed.contains(LogicalKeyboardKey.metaRight);
@@ -354,7 +367,7 @@ class EventsPlannerState extends State<EventsPlanner> {
   @override
   Widget build(BuildContext context) {
     var dayParam = widget.dayParam;
-    var plannerHeight = (heightPerMinute * 60 * 24) + dayParam.dayTopPadding + dayParam.dayBottomPadding;
+    var plannerHeight = plannerTimeMapper.totalDayHeight() + dayParam.dayTopPadding + dayParam.dayBottomPadding;
     var daySeparationWidthPadding = widget.daySeparationWidth / 2;
     var todayColor = dayParam.todayColor ?? getDefaultTodayColor(context);
     var currentHourIndicatorColor = widget.currentHourIndicatorParam.currentHourIndicatorColor ?? getDefaultHourIndicatorColor(context);
@@ -480,6 +493,7 @@ class EventsPlannerState extends State<EventsPlanner> {
                 daySeparationWidthPadding: daySeparationWidthPadding,
                 plannerHeight: plannerHeight,
                 heightPerMinute: heightPerMinute,
+                plannerTimeMapper: plannerTimeMapper,
                 dayWidth: dayWidth,
                 dayEventsArranger: widget.dayEventsArranger,
                 dayParam: widget.dayParam,
@@ -502,6 +516,7 @@ class EventsPlannerState extends State<EventsPlanner> {
       textDirection: widget.textDirection,
       timesIndicatorsParam: widget.timesIndicatorsParam,
       heightPerMinute: heightPerMinute,
+      plannerTimeMapper: plannerTimeMapper,
       currentHourIndicatorHourVisibility: widget.currentHourIndicatorParam.currentHourIndicatorHourVisibility,
       currentHourIndicatorColor: currentHourIndicatorColor,
     );
@@ -548,13 +563,17 @@ class EventsPlannerState extends State<EventsPlanner> {
       var speed = widget.pinchToZoomParam.pinchToZoomSpeed;
       var zoom = event.scrollDelta.dy * -0.001 * speed;
       var newHeightPerMinute = heightPerMinute + zoom;
-      var scale = newHeightPerMinute / heightPerMinute;
 
       if (minZoom <= newHeightPerMinute && newHeightPerMinute <= maxZoom) {
+        final mappedOffset = _mapOffsetForNewHeightPerMinute(
+          oldOffset: mainVerticalController.offset,
+          oldHeightPerMinute: heightPerMinute,
+          newHeightPerMinute: newHeightPerMinute,
+        );
         setState(() {
           heightPerMinute = newHeightPerMinute;
           widget.pinchToZoomParam.onZoomChange?.call(heightPerMinute);
-          mainVerticalController.jumpTo(mainVerticalController.offset * scale);
+          mainVerticalController.jumpTo(mappedOffset);
         });
       }
     }
@@ -575,12 +594,36 @@ class EventsPlannerState extends State<EventsPlanner> {
       var minZoom = widget.pinchToZoomParam.pinchToZoomMinHeightPerMinute;
       var maxZoom = widget.pinchToZoomParam.pinchToZoomMaxHeightPerMinute;
       if (minZoom <= newHeightPerMinute && newHeightPerMinute <= maxZoom) {
+        final mappedOffset = _mapOffsetForNewHeightPerMinute(
+          oldOffset: mainVerticalControllerOffsetScaleStart,
+          oldHeightPerMinute: heightPerMinuteScaleStart,
+          newHeightPerMinute: newHeightPerMinute,
+        );
         setState(() {
           heightPerMinute = newHeightPerMinute;
-          mainVerticalController.jumpTo(mainVerticalControllerOffsetScaleStart * scale);
+          mainVerticalController.jumpTo(mappedOffset);
         });
       }
     }
+  }
+
+  double _mapOffsetForNewHeightPerMinute({
+    required double oldOffset,
+    required double oldHeightPerMinute,
+    required double newHeightPerMinute,
+  }) {
+    final oldMapper = PlannerTimeMapper(
+      heightPerMinute: oldHeightPerMinute,
+      hourCellGapPx: widget.hourCellGapPx,
+      paintGapAfterLastHour: widget.paintGapAfterLastHour,
+    );
+    final newMapper = PlannerTimeMapper(
+      heightPerMinute: newHeightPerMinute,
+      hourCellGapPx: widget.hourCellGapPx,
+      paintGapAfterLastHour: widget.paintGapAfterLastHour,
+    );
+    final minute = oldMapper.yToMinute(oldOffset);
+    return newMapper.minuteToY(minute);
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
@@ -764,11 +807,11 @@ class OffTimesParam {
 
   /// off time custom painter
   final CustomPainter Function(int column, DateTime day, bool isToday, double heightPerMinute, List<OffTimeRange> ranges, Color color)?
-  offTimesAllDaysPainter;
+      offTimesAllDaysPainter;
 
   /// off time on day custom painter
   final CustomPainter Function(int column, DateTime day, bool isToday, double heightPerMinute, List<OffTimeRange> ranges, Color color)?
-  offTimesDayPainter;
+      offTimesDayPainter;
 }
 
 class OffTimeRange {
@@ -1006,8 +1049,7 @@ class SlotSelectionParam {
     ColumnsParam columnsParam,
     double heightPerMinute,
     void Function(SlotSelection? updatedSlot) onChanged,
-  )?
-  slotSelectionBuilder;
+  )? slotSelectionBuilder;
 
   /// event when tap on interactive slot
   final void Function(SlotSelection? slot)? onSlotSelectionChange;
