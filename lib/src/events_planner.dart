@@ -194,6 +194,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   late double heightPerMinuteScaleStart;
   late double mainVerticalControllerOffsetScaleStart;
   var _listenHorizontalScrollDayChange = true;
+  var _hasResolvedVisibleFirstDay = false;
   var _plannerPointerDownCount = 0;
   var _isKeyboardZoomActive = false;
   var _startColumnIndex = 0;
@@ -343,6 +344,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
           widget.onDayChange?.call(currentDay);
           widget.controller.updateFocusedDay(currentDay);
           topLeftCellValueNotifier.value = currentDay;
+          _hasResolvedVisibleFirstDay = true;
         }
       }
     };
@@ -750,6 +752,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       animateToZoom: _animateToZoom,
       jumpToZoom: _setHeightPerMinuteImmediately,
       zoomGetter: () => heightPerMinute,
+      isDateVisible: _isDayAlreadyVisible,
+      isTodayVisible: () => _isDayAlreadyVisible(DateTime.now()),
     );
   }
 
@@ -762,19 +766,28 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     return offset;
   }
 
-  DateTime _normalizeJumpTargetDate(DateTime date) {
+  DateTime _currentVisibleFirstDay() {
+    if (!_hasResolvedVisibleFirstDay) {
+      return initialDate;
+    }
+    return topLeftCellValueNotifier.value.withoutTime;
+  }
+
+  int _floorDiv(int value, int divisor) {
+    final quotient = value ~/ divisor;
+    final remainder = value % divisor;
+    if (remainder != 0 && value.isNegative) {
+      return quotient - 1;
+    }
+    return quotient;
+  }
+
+  DateTime _getBracketStartDayForTarget(DateTime date) {
     final normalized = date.withoutTime;
-
-    if (widget.daysShowed == 7) {
-      return normalized.startOfWeek(widget.daysHeaderParam.startOfWeekDay);
-    }
-
-    if (widget.daysShowed == 3) {
-      // Keep selected day aligned with the first visible day.
-      return normalized.addCalendarDays(-1);
-    }
-
-    return normalized;
+    final firstVisibleDay = _currentVisibleFirstDay();
+    final delta = normalized.getDayDifference(firstVisibleDay);
+    final bracketIndex = _floorDiv(delta, widget.daysShowed);
+    return firstVisibleDay.addCalendarDays(bracketIndex * widget.daysShowed);
   }
 
   bool _isDayAlreadyVisible(DateTime day) {
@@ -827,7 +840,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
     _listenHorizontalScrollDayChange = false;
     try {
-      final targetDay = _normalizeJumpTargetDate(date);
+      final targetDay = _getBracketStartDayForTarget(date);
       final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
       if ((offset - mainHorizontalController.offset).abs() < 0.001) {
         return;
@@ -835,6 +848,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       await mainHorizontalController.animateTo(offset, duration: duration, curve: curve);
       final day = targetDay;
       topLeftCellValueNotifier.value = day;
+      _hasResolvedVisibleFirstDay = true;
       widget.controller.updateFocusedDay(day);
       widget.onDayChange?.call(day);
     } finally {
@@ -850,7 +864,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       widget.controller.updateFocusedDay(date.withoutTime);
       return;
     }
-    final targetDay = _normalizeJumpTargetDate(date);
+    final targetDay = _getBracketStartDayForTarget(date);
     _listenHorizontalScrollDayChange = false;
     final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
     if ((offset - mainHorizontalController.offset).abs() < 0.001) {
@@ -861,6 +875,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _listenHorizontalScrollDayChange = true;
     final day = targetDay;
     topLeftCellValueNotifier.value = day;
+    _hasResolvedVisibleFirstDay = true;
     widget.controller.updateFocusedDay(day);
     widget.onDayChange?.call(day);
   }

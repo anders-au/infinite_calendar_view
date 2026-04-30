@@ -14,6 +14,8 @@ class MonthsViewController {
   MonthsAnimateZoomAction? _animateToZoomAction;
   MonthsJumpZoomAction? _jumpToZoomAction;
   MonthsZoomGetter? _zoomGetter;
+  MonthsDateVisibleGetter? _isDateVisibleGetter;
+  MonthsTodayVisibleGetter? _isTodayVisibleGetter;
   Object? _attachmentOwner;
 
   /// Whether this controller is currently attached to an [EventsMonths].
@@ -76,6 +78,16 @@ class MonthsViewController {
     _jumpToZoomAction?.call(weekHeight);
   }
 
+  /// Whether [date] is currently visible in month viewport.
+  bool isDateVisible(DateTime date) {
+    return _isDateVisibleGetter?.call(date) ?? false;
+  }
+
+  /// Whether today is currently visible in month viewport.
+  bool isTodayVisible() {
+    return _isTodayVisibleGetter?.call() ?? false;
+  }
+
   void attach({
     Object? owner,
     required MonthsAnimateDateAction animateToDate,
@@ -87,6 +99,8 @@ class MonthsViewController {
     required MonthsAnimateZoomAction animateToZoom,
     required MonthsJumpZoomAction jumpToZoom,
     required MonthsZoomGetter zoomGetter,
+    required MonthsDateVisibleGetter isDateVisible,
+    required MonthsTodayVisibleGetter isTodayVisible,
   }) {
     _attachmentOwner = owner;
     _animateToDateAction = animateToDate;
@@ -98,6 +112,8 @@ class MonthsViewController {
     _animateToZoomAction = animateToZoom;
     _jumpToZoomAction = jumpToZoom;
     _zoomGetter = zoomGetter;
+    _isDateVisibleGetter = isDateVisible;
+    _isTodayVisibleGetter = isTodayVisible;
   }
 
   void detach({Object? owner}) {
@@ -113,6 +129,8 @@ class MonthsViewController {
     _animateToZoomAction = null;
     _jumpToZoomAction = null;
     _zoomGetter = null;
+    _isDateVisibleGetter = null;
+    _isTodayVisibleGetter = null;
     _attachmentOwner = null;
   }
 }
@@ -124,3 +142,5 @@ typedef MonthsJumpPageAction = void Function();
 typedef MonthsAnimateZoomAction = Future<void> Function(double weekHeight, Duration duration, Curve curve);
 typedef MonthsJumpZoomAction = void Function(double weekHeight);
 typedef MonthsZoomGetter = double Function();
+typedef MonthsDateVisibleGetter = bool Function(DateTime date);
+typedef MonthsTodayVisibleGetter = bool Function();

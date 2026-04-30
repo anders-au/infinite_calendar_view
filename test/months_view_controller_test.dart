@@ -8,6 +8,7 @@ void main() {
     var dateAnimated = false;
     var nextPageAnimated = false;
     var zoomSet = false;
+    var todayVisibleChecked = false;
 
     controller.attach(
       animateToDate: (date, duration, curve) async {
@@ -25,6 +26,11 @@ void main() {
         zoomSet = true;
       },
       zoomGetter: () => 120,
+      isDateVisible: (date) => date.year == 2026 && date.month == 1,
+      isTodayVisible: () {
+        todayVisibleChecked = true;
+        return true;
+      },
     );
 
     await controller.animateToDate(DateTime(2026, 1, 1));
@@ -35,6 +41,10 @@ void main() {
     expect(nextPageAnimated, isTrue);
     expect(zoomSet, isTrue);
     expect(controller.currentWeekHeight, 120);
+    expect(controller.isDateVisible(DateTime(2026, 1, 15)), isTrue);
+    expect(controller.isDateVisible(DateTime(2026, 2, 1)), isFalse);
+    expect(controller.isTodayVisible(), isTrue);
+    expect(todayVisibleChecked, isTrue);
   });
 
   test('months controller no-op when detached', () async {
@@ -45,5 +55,7 @@ void main() {
     await controller.nextPage();
     controller.jumpToDate(DateTime(2026, 1, 1));
     controller.setZoom(117);
+    expect(controller.isDateVisible(DateTime(2026, 1, 1)), isFalse);
+    expect(controller.isTodayVisible(), isFalse);
   });
 }

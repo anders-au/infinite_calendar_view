@@ -417,7 +417,11 @@ class _EventsListWidgetState extends State<EventsListWidget> {
     var left = organizedEvent.left;
     var top = mapper.minuteToY(organizedEvent.startDuration.totalMinutes.toDouble());
     var right = organizedEvent.right;
-    var eventBottom = mapper.minuteToY(organizedEvent.endDuration.totalMinutes.toDouble());
+    final endMinute = organizedEvent.endDuration.totalMinutes;
+    var eventBottom = mapper.minuteToY(endMinute.toDouble());
+    if (mapper.hourCellGapPx > 0 && endMinute > 0 && endMinute < (24 * 60) && endMinute % 60 == 0) {
+      eventBottom -= mapper.hourCellGapPx;
+    }
     var bottom = widget.plannerHeight - eventBottom;
     var height = widget.plannerHeight - (bottom + top);
     var width = widget.dayWidth - (left + right);
@@ -548,3 +552,4 @@ class DefaultDayEvent extends StatelessWidget {
     );
   }
 }
+

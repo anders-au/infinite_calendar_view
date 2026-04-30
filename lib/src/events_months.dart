@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'controller/months_view_controller.dart';
 import 'controller/events_controller.dart';
 import 'events/event.dart';
+import 'utils/extension.dart';
 import 'utils/list/models/alignments.dart';
 import 'utils/list/infinite_list.dart';
 import 'widgets/month/header.dart';
@@ -327,7 +328,61 @@ class EventsMonthsState extends State<EventsMonths> with TickerProviderStateMixi
       animateToZoom: _animateToZoom,
       jumpToZoom: _setWeekHeightImmediately,
       zoomGetter: () => weekHeight,
+      isDateVisible: _isMonthVisible,
+      isTodayVisible: () => _isMonthVisible(DateTime.now()),
     );
+  }
+
+  int _weeksInMonth(DateTime month) {
+    final normalized = DateTime(month.year, month.month);
+    var startOfWeek = normalized.startOfWeek(widget.weekParam.startOfWeekDay);
+    var weeks = 0;
+    while (startOfWeek.addCalendarDays(6).month == normalized.month) {
+      weeks++;
+      startOfWeek = startOfWeek.addCalendarDays(7);
+    }
+    return weeks;
+  }
+
+  double _monthHeight(DateTime month) {
+    return _weeksInMonth(month) * weekHeight;
+  }
+
+  double _monthOffsetForVisibility(DateTime month) {
+    final normalized = DateTime(month.year, month.month);
+    if (normalized.year == initialMonth.year && normalized.month == initialMonth.month) {
+      return 0;
+    }
+
+    var offset = 0.0;
+    var cursor = initialMonth;
+    final step = normalized.isAfter(initialMonth) ? 1 : -1;
+
+    while (cursor.year != normalized.year || cursor.month != normalized.month) {
+      if (step > 0) {
+        offset += _monthHeight(cursor);
+        cursor = DateTime(cursor.year, cursor.month + 1);
+      } else {
+        final previous = DateTime(cursor.year, cursor.month - 1);
+        offset -= _monthHeight(previous);
+        cursor = previous;
+      }
+    }
+    return offset;
+  }
+
+  bool _isMonthVisible(DateTime date) {
+    if (!_scrollController.hasClients) {
+      return false;
+    }
+
+    final month = DateTime(date.year, date.month);
+    final monthStart = _monthOffsetForVisibility(month);
+    final monthEnd = monthStart + _monthHeight(month);
+    final viewportStart = _scrollController.offset;
+    final viewportEnd = viewportStart + _scrollController.position.viewportDimension;
+
+    return monthStart < viewportEnd && monthEnd > viewportStart;
   }
 
   double _monthOffsetFromDate(DateTime date) {

@@ -16,6 +16,8 @@ class PlannerViewController {
   PlannerAnimateZoomAction? _animateToZoomAction;
   PlannerJumpZoomAction? _jumpToZoomAction;
   PlannerZoomGetter? _zoomGetter;
+  PlannerDateVisibleGetter? _isDateVisibleGetter;
+  PlannerTodayVisibleGetter? _isTodayVisibleGetter;
   Object? _attachmentOwner;
   double _verticalViewportAnchor = 0.2;
 
@@ -127,6 +129,16 @@ class PlannerViewController {
     _jumpToZoomAction?.call(heightPerMinute);
   }
 
+  /// Whether [date] is currently visible in planner viewport.
+  bool isDateVisible(DateTime date) {
+    return _isDateVisibleGetter?.call(date) ?? false;
+  }
+
+  /// Whether today is currently visible in planner viewport.
+  bool isTodayVisible() {
+    return _isTodayVisibleGetter?.call() ?? false;
+  }
+
   void attach({
     Object? owner,
     required PlannerAnimateDateAction animateToDate,
@@ -140,6 +152,8 @@ class PlannerViewController {
     required PlannerAnimateZoomAction animateToZoom,
     required PlannerJumpZoomAction jumpToZoom,
     required PlannerZoomGetter zoomGetter,
+    required PlannerDateVisibleGetter isDateVisible,
+    required PlannerTodayVisibleGetter isTodayVisible,
   }) {
     _attachmentOwner = owner;
     _animateToDateAction = animateToDate;
@@ -153,6 +167,8 @@ class PlannerViewController {
     _animateToZoomAction = animateToZoom;
     _jumpToZoomAction = jumpToZoom;
     _zoomGetter = zoomGetter;
+    _isDateVisibleGetter = isDateVisible;
+    _isTodayVisibleGetter = isTodayVisible;
   }
 
   void detach({Object? owner}) {
@@ -170,6 +186,8 @@ class PlannerViewController {
     _animateToZoomAction = null;
     _jumpToZoomAction = null;
     _zoomGetter = null;
+    _isDateVisibleGetter = null;
+    _isTodayVisibleGetter = null;
     _attachmentOwner = null;
   }
 }
@@ -183,3 +201,5 @@ typedef PlannerJumpTimeAction = void Function(TimeOfDay time);
 typedef PlannerAnimateZoomAction = Future<void> Function(double heightPerMinute, Duration duration, Curve curve);
 typedef PlannerJumpZoomAction = void Function(double heightPerMinute);
 typedef PlannerZoomGetter = double Function();
+typedef PlannerDateVisibleGetter = bool Function(DateTime date);
+typedef PlannerTodayVisibleGetter = bool Function();
