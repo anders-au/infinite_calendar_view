@@ -512,9 +512,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
               slivers: [
                 SliverList(
                   delegate: SliverChildBuilderDelegate(childCount: 1, (context, index) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 0, top: 0),
-                      child: SizedBox(
+                    return SizedBox(
                         height: plannerHeight,
                         child: Row(
                           textDirection: widget.textDirection,
@@ -527,7 +525,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                             Expanded(child: getPlannerWidget(todayColor, daySeparationWidthPadding, plannerHeight, currentHourIndicatorColor)),
                           ],
                         ),
-                      ),
+                      
                     );
                   }),
                 ),
