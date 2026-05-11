@@ -300,7 +300,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       final int endIndex = startIndex + daysSpan - 1;
 
       final double naturalLeft = startIndex * widget.dayWidth - offset + pad;
-      final double naturalWidth = widget.dayWidth * daysSpan - pad * 2;
+      final double naturalWidth = widget.dayWidth * daysSpan - pad * 2 - widget.fullDayParam.eventEndGap;
       final double naturalRight = naturalLeft + naturalWidth;
 
       // Visibility skip: use index-based logic for multi-day events so that
@@ -322,7 +322,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       final double left;
       final double width;
       if (daysSpan > 1 && naturalLeft < 0) {
-        final minWidth = widget.dayWidth - pad * 2;
+        final minWidth = widget.dayWidth - pad * 2 - widget.fullDayParam.eventEndGap;
         if (naturalRight >= minWidth) {
           left = 0.0;
           width = (naturalRight - left).clamp(minWidth, naturalWidth).toDouble();

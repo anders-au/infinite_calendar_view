@@ -991,6 +991,7 @@ class FullDayParam {
     this.fullDayEventsBuilder,
     this.fullDayEventBuilder,
     this.fullDayBackgroundColor,
+    this.eventEndGap = 0.0,
   });
 
   /// visibility of full days events
@@ -1022,6 +1023,11 @@ class FullDayParam {
 
   /// color of background top bar
   final Color? fullDayBackgroundColor;
+
+  /// Gap subtracted from the right edge of each event tile.
+  /// Use this to prevent tiles from bleeding into the adjacent day column
+  /// when [EventsPlanner.daySeparationWidth] is 0.
+  final double eventEndGap;
 }
 
 class PinchToZoomParameters {
