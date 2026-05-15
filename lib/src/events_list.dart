@@ -28,6 +28,18 @@ int _lowerBound(List<DateTime> sorted, DateTime target) {
   return lo;
 }
 
+// Returns an in-range sparse list index nearest to [target].
+//
+// _lowerBound can return sorted.length as an insertion-point sentinel when
+// target is after the last day. In sparse mode that sentinel would create an
+// empty center sliver, so map it back to the last valid item.
+int _nearestSparseCenterIndex(List<DateTime> sorted, DateTime target) {
+  if (sorted.isEmpty) return 0;
+  final idx = _lowerBound(sorted, target);
+  if (idx >= sorted.length) return sorted.length - 1;
+  return idx;
+}
+
 class EventsList extends StatefulWidget {
   const EventsList({
     super.key,
@@ -143,7 +155,7 @@ class EventsListState extends State<EventsList> {
     _attachListViewController();
     if (widget.hideDaysWithoutEvents) {
       _sparseDays = _buildSparseDays();
-      _sparseCenterIndex = _lowerBound(_sparseDays, initialDay).clamp(0, _sparseDays.length);
+      _sparseCenterIndex = _nearestSparseCenterIndex(_sparseDays, initialDay);
       _sparseControllerListener = _onSparseControllerUpdate;
       widget.controller.addListener(_sparseControllerListener!);
     }
@@ -183,7 +195,7 @@ class EventsListState extends State<EventsList> {
         final newDays = _buildSparseDays();
         setState(() {
           _sparseDays = newDays;
-          _sparseCenterIndex = _lowerBound(newDays, initialDay).clamp(0, newDays.length);
+          _sparseCenterIndex = _nearestSparseCenterIndex(newDays, initialDay);
         });
       }
     } else if (oldWidget.hideDaysWithoutEvents && _sparseControllerListener != null) {
@@ -226,7 +238,7 @@ class EventsListState extends State<EventsList> {
     if (listEquals(newDays, _sparseDays)) return;
 
     // Preserve scroll position: anchor on the currently sticky day.
-    final newCenter = _lowerBound(newDays, stickyDay).clamp(0, newDays.length);
+    final newCenter = _nearestSparseCenterIndex(newDays, stickyDay);
     if (_ownsMainVerticalController) mainVerticalController.dispose();
     final newController = widget.verticalController ?? ScrollController();
     setState(() {
@@ -456,7 +468,7 @@ class EventsListState extends State<EventsList> {
       }
       final targetDay = date.withoutTime;
       final newCenter = widget.hideDaysWithoutEvents
-          ? _lowerBound(_sparseDays, targetDay).clamp(0, _sparseDays.length)
+          ? _nearestSparseCenterIndex(_sparseDays, targetDay)
           : _sparseCenterIndex; // unused in dense mode
 
       setState(() {
