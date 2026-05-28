@@ -387,9 +387,7 @@ class EventsMonthsState extends State<EventsMonths> with TickerProviderStateMixi
 
   double _monthOffsetFromDate(DateTime date) {
     final monthDate = DateTime(date.year, date.month);
-    final yearDelta = monthDate.year - initialMonth.year;
-    final monthDelta = monthDate.month - initialMonth.month;
-    return ((yearDelta * 12) + monthDelta) * weekHeight;
+    return _monthOffsetForVisibility(monthDate);
   }
 
   double _clampVerticalOffset(double offset) {

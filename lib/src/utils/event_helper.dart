@@ -1,103 +1,156 @@
-import 'dart:collection';
-
 import 'package:flutter/material.dart';
 import 'package:infinite_calendar_view/src/events/event.dart';
 import 'package:infinite_calendar_view/src/utils/extension.dart';
 
-/// find event must be showed, and place multi day event in same row
+/// Builds a 7 x `maxEventsShowed` display grid for one week.
+///
+/// Strategy:
+/// 1) Place multi-day events first so they keep a stable row (lane) across days.
+/// 2) Fill remaining holes per day with single-day events.
 List<List<Event?>> getShowedWeekEvents(
   List<List<Event>?> weekEvents,
   int maxEventsShowed,
 ) {
-  var sortedMultiDayEvents = getWeekMultiDaysEventsSortedMap(weekEvents);
+  final daysEventsList =
+      List.generate(7, (_) => List<Event?>.filled(maxEventsShowed, null));
+  if (maxEventsShowed <= 0) return daysEventsList;
 
-  // place no multi days events to show
-  List<List<Event?>> daysEventsList = List.generate(7, (index) {
-    var events = (weekEvents[index] ?? []).where((e) => !e.isMultiDay);
-    return List.generate(maxEventsShowed, (i) => events.getOrNull(i));
-  });
+  final segments = _buildSortedMultiDaySegments(weekEvents);
+  final laneBySegmentId = _assignMultiDayLanes(segments);
 
-  for (var multiDayEvents in sortedMultiDayEvents.values) {
-    var dayPlacedEvents = daysEventsList[multiDayEvents.keys.first];
-    var eventToPlace = multiDayEvents.values.first;
-    var index = 0;
-    // compute index to place line
-    while (index < dayPlacedEvents.length && dayPlacedEvents[index] != null) {
-      var placedEvent = dayPlacedEvents[index]!;
-      if (eventToPlace.startTime.millisecondsSinceEpoch >
-          placedEvent.startTime.millisecondsSinceEpoch) {
-        index++;
-      } else {
-        break;
-      }
-    }
-
-    // place all line
-    if (index < maxEventsShowed) {
-      for (var eventToPlace in multiDayEvents.entries) {
-        daysEventsList[eventToPlace.key].insert(index, eventToPlace.value);
-      }
+  // Multi-day events are written first to reserve stable visual lanes.
+  // If a lane is outside the visible cap, the event is hidden and counted by UI as "other".
+  for (final segment in segments) {
+    final lane = laneBySegmentId[segment.uniqueId]!;
+    if (lane >= maxEventsShowed) continue;
+    for (final entry in segment.eventsByDay.entries) {
+      daysEventsList[entry.key][lane] = entry.value;
     }
   }
+
+  // Single-day events are only allowed to fill holes left by multi-day placement.
+  // This avoids pushing a multi-day event to a different lane on adjacent days.
+  for (var day = 0; day < 7; day++) {
+    final dayEvents = weekEvents[day] ?? const <Event>[];
+    final singleDayEvents = dayEvents.where((e) => !e.isMultiDay);
+    for (final event in singleDayEvents) {
+      final emptyLane = daysEventsList[day].indexOf(null);
+      if (emptyLane == -1) break;
+      daysEventsList[day][emptyLane] = event;
+    }
+  }
+
   return daysEventsList;
 }
 
-// generate sorted map of all multi days events on week
-SplayTreeMap<UniqueKey, Map<int, Event>> getWeekMultiDaysEventsSortedMap(
+/// Returns a map from each multi-day event's [UniqueKey] to a map of
+/// week-day index → event segment, in the same sorted order used for lane
+/// assignment. Useful for testing and introspection.
+Map<UniqueKey, Map<int, Event>> getWeekMultiDaysEventsSortedMap(
     List<List<Event>?> weekEvents) {
-  // generate map of all multi days events
-  Map<UniqueKey, Map<int, Event>> multiDaysEventsMap = {};
+  final segments = _buildSortedMultiDaySegments(weekEvents);
+  return {for (final s in segments) s.uniqueId: s.eventsByDay};
+}
+
+List<_MultiDaySegment> _buildSortedMultiDaySegments(
+    List<List<Event>?> weekEvents) {
+  final multiDaysEventsMap = <UniqueKey, Map<int, Event>>{};
+  final insertionOrder = <UniqueKey, int>{};
+  var orderCounter = 0;
+
   for (var day = 0; day < 7; day++) {
-    var multiDaysEvents = weekEvents[day]?.where((e) => e.isMultiDay);
-    for (Event event in multiDaysEvents ?? []) {
+    final multiDaysEvents = weekEvents[day]?.where((e) => e.isMultiDay);
+    for (final event in multiDaysEvents ?? const <Event>[]) {
+      // Keep the first-seen position as a final deterministic tie-breaker.
+      // This preserves input order when start day/time and duration are identical.
+      if (!insertionOrder.containsKey(event.uniqueId)) {
+        insertionOrder[event.uniqueId] = orderCounter++;
+      }
       multiDaysEventsMap[event.uniqueId] = {
         ...multiDaysEventsMap[event.uniqueId] ?? {},
-        day: event
+        day: event,
       };
     }
   }
 
-  // preserve insertion order as a deterministic final tie-breaker between keys
-  final keyOrder = <UniqueKey, int>{};
-  var keyIndex = 0;
-  for (final key in multiDaysEventsMap.keys) {
-    keyOrder[key] = keyIndex++;
+  final segments = multiDaysEventsMap.entries
+      .map((entry) => _MultiDaySegment(
+            uniqueId: entry.key,
+            eventsByDay: entry.value,
+            insertionOrder: insertionOrder[entry.key]!,
+          ))
+      .toList();
+
+  segments.sort((a, b) {
+    // Sort priority for multi-day placement:
+    // - earlier visible start day first
+    // - then original input order (list priority)
+    // - then earlier start time
+    // - then longer spans first (so long bars claim lanes early)
+    final compareStartDay = a.startDay.compareTo(b.startDay);
+    if (compareStartDay != 0) return compareStartDay;
+
+    final compareInsertion = a.insertionOrder.compareTo(b.insertionOrder);
+    if (compareInsertion != 0) return compareInsertion;
+
+    final compareStartTime = a.startTime.compareTo(b.startTime);
+    if (compareStartTime != 0) return compareStartTime;
+
+    return b.durationDays.compareTo(a.durationDays);
+  });
+
+  return segments;
+}
+
+Map<UniqueKey, int> _assignMultiDayLanes(List<_MultiDaySegment> segments) {
+  final laneBySegmentId = <UniqueKey, int>{};
+  final occupiedDaysByLane = <Set<int>>[];
+
+  for (final segment in segments) {
+    var lane = 0;
+    while (true) {
+      if (lane == occupiedDaysByLane.length) {
+        occupiedDaysByLane.add(<int>{});
+      }
+
+      final occupiedDays = occupiedDaysByLane[lane];
+      // Greedy first-fit: choose the first lane that does not overlap
+      // any day covered by this segment.
+      final overlap = segment.days.any(occupiedDays.contains);
+      if (!overlap) {
+        occupiedDays.addAll(segment.days);
+        laneBySegmentId[segment.uniqueId] = lane;
+        break;
+      }
+
+      lane++;
+    }
   }
 
-  // sort multi days events
-  final sortedMultiDayEvents = SplayTreeMap<UniqueKey, Map<int, Event>>.from(
-    multiDaysEventsMap,
-    (a, b) {
-      if (identical(a, b)) {
-        return 0;
-      }
+  return laneBySegmentId;
+}
 
-      var eventA = multiDaysEventsMap[a]!.values.first;
-      var eventB = multiDaysEventsMap[b]!.values.first;
+class _MultiDaySegment {
+  _MultiDaySegment({
+    required this.uniqueId,
+    required this.eventsByDay,
+    required this.insertionOrder,
+  });
 
-      final byStart = eventA.startTime.compareTo(eventB.startTime);
-      if (byStart != 0) {
-        return byStart;
-      }
+  final UniqueKey uniqueId;
+  final Map<int, Event> eventsByDay;
+  final int insertionOrder;
 
-      final endA = eventA.effectiveEndTime ?? eventA.endTime ?? eventA.startTime;
-      final endB = eventB.effectiveEndTime ?? eventB.endTime ?? eventB.startTime;
-      final byEnd = endA.compareTo(endB);
-      if (byEnd != 0) {
-        return byEnd;
-      }
+  // Days are normalized to week indexes (0..6), not absolute calendar days.
+  List<int> get days => eventsByDay.keys.toList()..sort();
 
-      final byColumn = eventA.columnIndex.compareTo(eventB.columnIndex);
-      if (byColumn != 0) {
-        return byColumn;
-      }
+  int get startDay => days.first;
 
-      // Final tie-break so distinct keys are never considered equal.
-      return keyOrder[a]!.compareTo(keyOrder[b]!);
-    },
-  );
+  int get endDay => days.last;
 
-  return sortedMultiDayEvents;
+  int get durationDays => (endDay - startDay) + 1;
+
+  DateTime get startTime => eventsByDay[startDay]!.startTime;
 }
 
 List<DateTime> getDaysInBetween(DateTime startDate, DateTime endDate) {
