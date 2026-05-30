@@ -98,23 +98,18 @@ class _WeekState extends State<Week> {
               onDragEnd.call(dragDay);
             },
             builder: (context, candidateData, rejectedData) {
-              return GestureDetector(
-                onTapDown: (details) => widget.daysParam.onDayTapDown?.call(getPositionDay(details.localPosition, dayWidth)),
-                onTapUp: (details) => widget.daysParam.onDayTapUp?.call(getPositionDay(details.localPosition, dayWidth)),
-                behavior: HitTestBehavior.translucent,
-                child: Stack(
-                  children: [
-                    for (var dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) getDayCellWidget(dayOfWeek, dayWidth),
-                    for (var dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++)
-                      for (var eventIndex = 0; eventIndex < weekShowedEvents[dayOfWeek].length; eventIndex++)
-                        if (eventIndex < widget.maxEventsShowed)
-                          ...getEventOrMoreEventsWidget(
-                            dayOfWeek,
-                            eventIndex,
-                            dayWidth,
-                          ),
-                  ],
-                ),
+              return Stack(
+                children: [
+                  for (var dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) getDayCellWidget(dayOfWeek, dayWidth),
+                  for (var dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++)
+                    for (var eventIndex = 0; eventIndex < weekShowedEvents[dayOfWeek].length; eventIndex++)
+                      if (eventIndex < widget.maxEventsShowed)
+                        ...getEventOrMoreEventsWidget(
+                          dayOfWeek,
+                          eventIndex,
+                          dayWidth,
+                        ),
+                ],
               );
             },
           );
@@ -128,6 +123,7 @@ class _WeekState extends State<Week> {
     var horizontalPosition = getHorizontalPosition(dayOfWeek, dayWidth, margin);
     var cellWidth = dayWidth - margin.horizontal;
     var cellHeight = widget.weekHeight - margin.vertical;
+    var day = widget.startOfWeek.addCalendarDays(dayOfWeek);
 
     return Positioned(
       left: widget.textDirection == TextDirection.ltr ? horizontalPosition : null,
@@ -135,16 +131,23 @@ class _WeekState extends State<Week> {
       top: margin.top,
       width: cellWidth < 0 ? 0 : cellWidth,
       height: cellHeight < 0 ? 0 : cellHeight,
-      child: Container(
-        decoration: widget.daysParam.dayCellDecoration,
-        child: Column(
-          children: [
-            SizedBox(
-              height: widget.daysParam.headerHeight,
-              child: getHeaderWidget(dayOfWeek),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTapDown: widget.daysParam.onDayTapDown != null ? (_) => widget.daysParam.onDayTapDown!(day) : null,
+          onTapUp: widget.daysParam.onDayTapUp != null ? (_) => widget.daysParam.onDayTapUp!(day) : null,
+          child: Ink(
+            decoration: widget.daysParam.dayCellDecoration,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: widget.daysParam.headerHeight,
+                  child: getHeaderWidget(dayOfWeek),
+                ),
+                SizedBox(height: widget.daysParam.spaceBetweenHeaderAndEvents),
+              ],
             ),
-            SizedBox(height: widget.daysParam.spaceBetweenHeaderAndEvents),
-          ],
+          ),
         ),
       ),
     );

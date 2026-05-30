@@ -505,12 +505,14 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
           child: ScrollConfiguration(
             behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, dragDevices: PointerDeviceKind.values.toSet()),
             child: CustomScrollView(
+              
               physics: canZoom && (_plannerPointerDownCount > 1 || _isKeyboardZoomActive)
                   ? const NeverScrollableScrollPhysics()
                   : widget.verticalScrollPhysics,
               controller: mainVerticalController,
               slivers: [
                 SliverList(
+                  
                   delegate: SliverChildBuilderDelegate(childCount: 1, (context, index) {
                     return SizedBox(
                         height: plannerHeight,
