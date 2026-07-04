@@ -17,6 +17,7 @@ import 'utils/list/models/alignments.dart';
 import 'widgets/planner/day_widget.dart';
 import 'widgets/planner/horizontal_days_indicator_widget.dart';
 import 'widgets/planner/horizontal_full_day_events_widget.dart';
+import 'widgets/planner/interactive_slot.dart';
 import 'widgets/planner/vertical_time_indicator_widget.dart';
 
 class EventsPlanner extends StatefulWidget {
@@ -200,6 +201,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   var _startColumnIndex = 0;
   Drag? _headerHorizontalDrag;
   final Object _plannerViewControllerOwner = Object();
+  Listenable? _slotOverlayListenable;
 
   PlannerTimeMapper get plannerTimeMapper => PlannerTimeMapper(
         heightPerMinute: heightPerMinute,
@@ -221,6 +223,10 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     mainHorizontalController = widget.horizontalScrollController ?? ScrollController();
     headersHorizontalController = widget.headerHorizontalScrollController ?? ScrollController();
     mainVerticalController = widget.verticalScrollController ?? ScrollController(initialScrollOffset: widget.initialVerticalScrollOffset);
+    _slotOverlayListenable = Listenable.merge([
+      _controller.slotSelectionNotifier,
+      mainHorizontalController,
+    ]);
     _plannerViewController = widget.plannerViewController ?? PlannerViewController();
     _attachPlannerViewController();
 
@@ -542,46 +548,125 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   Widget getPlannerWidget(Color todayColor, double daySeparationWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
     var physics = _plannerPointerDownCount > 1 ? const NeverScrollableScrollPhysics() : widget.horizontalScrollPhysics;
 
-    return ScrollConfiguration(
-      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, dragDevices: PointerDeviceKind.values.toSet()),
-      child: InfiniteList(
-        physics: physics,
-        controller: mainHorizontalController,
-        scrollDirection: Axis.horizontal,
-        direction: InfiniteListDirection.multi,
-        negChildCount: widget.maxPreviousDays,
-        posChildCount: widget.maxNextDays,
-        builder: (context, index) {
-          var day = getDayFromIndex(index);
-
-          // notify day will be build
-          Future(() => widget.dayParam.onDayBuild?.call(day));
-
-          return InfiniteListItem(
-            contentBuilder: (context) {
-              return DayWidget(
-                controller: _controller,
-                textDirection: widget.textDirection,
-                day: day,
-                todayColor: todayColor,
-                daySeparationWidthPadding: daySeparationWidthPadding,
-                plannerHeight: plannerHeight,
-                heightPerMinute: heightPerMinute,
-                plannerTimeMapper: plannerTimeMapper,
-                dayWidth: dayWidth,
-                dayEventsArranger: widget.dayEventsArranger,
-                dayParam: widget.dayParam,
-                columnsParam: widget.columnsParam,
-                startColumnIndex: _startColumnIndex,
-                currentHourIndicatorParam: widget.currentHourIndicatorParam,
-                currentHourIndicatorColor: currentHourIndicatorColor,
-                offTimesParam: widget.offTimesParam,
-                showMultiDayEvents: !widget.fullDayParam.showMultiDayEvents,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, dragDevices: PointerDeviceKind.values.toSet()),
+          child: InfiniteList(
+            physics: physics,
+            controller: mainHorizontalController,
+            scrollDirection: Axis.horizontal,
+            direction: InfiniteListDirection.multi,
+            negChildCount: widget.maxPreviousDays,
+            posChildCount: widget.maxNextDays,
+            builder: (context, index) {
+              var day = getDayFromIndex(index);
+              Future(() => widget.dayParam.onDayBuild?.call(day));
+              return InfiniteListItem(
+                contentBuilder: (context) {
+                  return DayWidget(
+                    controller: _controller,
+                    textDirection: widget.textDirection,
+                    day: day,
+                    todayColor: todayColor,
+                    daySeparationWidthPadding: daySeparationWidthPadding,
+                    plannerHeight: plannerHeight,
+                    heightPerMinute: heightPerMinute,
+                    plannerTimeMapper: plannerTimeMapper,
+                    dayWidth: dayWidth,
+                    dayEventsArranger: widget.dayEventsArranger,
+                    dayParam: widget.dayParam,
+                    columnsParam: widget.columnsParam,
+                    startColumnIndex: _startColumnIndex,
+                    currentHourIndicatorParam: widget.currentHourIndicatorParam,
+                    currentHourIndicatorColor: currentHourIndicatorColor,
+                    offTimesParam: widget.offTimesParam,
+                    showMultiDayEvents: !widget.fullDayParam.showMultiDayEvents,
+                  );
+                },
               );
             },
-          );
-        },
-      ),
+          ),
+        ),
+        _buildSlotOverlay(daySeparationWidthPadding, currentHourIndicatorColor),
+      ],
+    );
+  }
+
+  Widget _buildSlotOverlay(double daySeparationWidthPadding, Color currentHourIndicatorColor) {
+    return AnimatedBuilder(
+      animation: _slotOverlayListenable!,
+      builder: (context, _) {
+        final slot = _controller.slotSelectionNotifier.value;
+        if (slot == null) return const SizedBox.shrink();
+
+        final dayParam = widget.dayParam;
+        final columnsParam = widget.columnsParam;
+        final mapper = plannerTimeMapper;
+        final paddedWidth = dayWidth - daySeparationWidthPadding * 2;
+        final columnPositions = columnsParam.getColumPositions(paddedWidth, slot.columnIndex);
+
+        // Horizontal: compute day offset from initialDate.
+        int dayDiff = slot.startDateTime.withoutTime
+            .difference(initialDate.withoutTime)
+            .inDays;
+        if (widget.textDirection == TextDirection.rtl) {
+          dayDiff = -dayDiff;
+        }
+        final contentX = dayDiff * dayWidth;
+        final viewportX = contentX - mainHorizontalController.offset;
+        final left = viewportX + daySeparationWidthPadding + columnPositions[0];
+        final slotWidth = columnPositions[1] - columnPositions[0];
+
+        // Vertical: time → pixel.
+        // minteToY includes hourCellGapPx for positioning.  When the slot
+        // ends exactly on an hour boundary we subtract the gap, matching
+        // the event rendering logic in DayWidget.getEventWidget.
+        final startMinute = slot.startDateTime.totalMinutes.toDouble();
+        final endMinute = startMinute + slot.durationInMinutes;
+        final top = mapper.minuteToY(startMinute);
+        double slotBottom = mapper.minuteToY(endMinute);
+        if (mapper.hourCellGapPx > 0 &&
+            endMinute > 0 &&
+            endMinute < PlannerTimeMapper.minutesPerDay &&
+            endMinute % PlannerTimeMapper.minutesPerHour == 0) {
+          slotBottom -= mapper.hourCellGapPx;
+        }
+        final slotHeight = slotBottom - top;
+
+        return Positioned(
+          top: top,
+          height: slotHeight,
+          left: left,
+          width: slotWidth,
+          child: dayParam.slotSelectionParam.slotSelectionBuilder?.call(
+                slot,
+                paddedWidth,
+                dayParam,
+                columnsParam,
+                mapper.heightPerMinute,
+                (SlotSelection? updatedSlot) {
+                  _controller.slotSelectionNotifier.value = updatedSlot;
+                  dayParam.slotSelectionParam.onSlotSelectionChange
+                      ?.call(updatedSlot);
+                },
+              ) ??
+              InteractiveSlot(
+                slot: slot,
+                dayWidth: paddedWidth,
+                dayParam: dayParam,
+                columnsParam: columnsParam,
+                heightPerMinute: mapper.heightPerMinute,
+                plannerTimeMapper: mapper,
+                onChanged: (SlotSelection? updatedSlot) {
+                  _controller.slotSelectionNotifier.value = updatedSlot;
+                  dayParam.slotSelectionParam.onSlotSelectionChange
+                      ?.call(updatedSlot);
+                },
+              ),
+        );
+      },
     );
   }
 
@@ -1330,6 +1415,11 @@ class SlotSelectionParam {
     this.enableSlotSelectionResize = true,
     this.slotSelectionTopHandleBuilder,
     this.slotSelectionBottomHandleBuilder,
+    this.accentColor,
+    this.showHandles = true,
+    this.handleZoneFraction = 0.25,
+    this.dragThreshold = 6.0,
+    this.slotBorderRadius = 8.0,
   });
 
   /// enable interactive slot selection when tap on day slot
@@ -1380,6 +1470,26 @@ class SlotSelectionParam {
 
   /// interactive slot selection bottom handle builder (for resize)
   final Widget Function()? slotSelectionBottomHandleBuilder;
+
+  /// Color used for the left accent bar and resize handles.
+  /// Defaults to the theme's primary color.
+  final Color? accentColor;
+
+  /// Whether to show the Google Calendar style handle indicators
+  /// (small pill shapes at top and bottom).
+  final bool showHandles;
+
+  /// Fraction of the widget height assigned to the top and bottom handle
+  /// zones (0.0 – 0.5). The middle zone is the remainder.
+  /// Defaults to 0.25 (25% top, 50% middle, 25% bottom).
+  final double handleZoneFraction;
+
+  /// Minimum pointer movement in logical pixels before a drag action is
+  /// committed. Prevents accidental micro-drags. Defaults to 6.0.
+  final double dragThreshold;
+
+  /// Border radius for the slot selection pill. Defaults to 8.0.
+  final double slotBorderRadius;
 }
 
 class SlotSelection {

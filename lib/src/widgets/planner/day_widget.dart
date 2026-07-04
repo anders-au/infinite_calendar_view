@@ -11,7 +11,6 @@ import '../../events_planner.dart';
 import '../../painters/events_painters.dart';
 import '../../utils/extension.dart';
 import '../../utils/planner_time_mapper.dart';
-import 'interactive_slot.dart';
 
 class DayWidget extends StatelessWidget {
   const DayWidget({
@@ -212,50 +211,8 @@ class DayWidget extends StatelessWidget {
                 ),
               ),
 
-            // slot selection
-            ValueListenableBuilder<SlotSelection?>(
-              valueListenable: controller.slotSelectionNotifier,
-              builder: (context, slot, _) {
-                if (slot != null && DateUtils.isSameDay(slot.startDateTime, day)) {
-                  var columnPosition = columnsParam.getColumPositions(width, slot.columnIndex);
-                  final startMinute = slot.startDateTime.totalMinutes.toDouble();
-                  final endMinute = startMinute + slot.durationInMinutes;
-                  final top = mapper.minuteToY(startMinute);
-                  final bottom = mapper.minuteToY(endMinute);
-                  return Positioned(
-                    top: top,
-                    height: bottom - top,
-                    left: columnPosition[0],
-                    width: columnPosition[1] - columnPosition[0],
-                    child: dayParam.slotSelectionParam.slotSelectionBuilder?.call(
-                          slot,
-                          width,
-                          dayParam,
-                          columnsParam,
-                          mapper.heightPerMinute,
-                          (SlotSelection? updatedSlot) {
-                            controller.slotSelectionNotifier.value = updatedSlot;
-                            dayParam.slotSelectionParam.onSlotSelectionChange?.call(updatedSlot);
-                          },
-                        ) ??
-                        InteractiveSlot(
-                          slot: slot,
-                          dayWidth: width,
-                          dayParam: dayParam,
-                          columnsParam: columnsParam,
-                          heightPerMinute: mapper.heightPerMinute,
-                          plannerTimeMapper: mapper,
-                          onChanged: (SlotSelection? updatedSlot) {
-                            controller.slotSelectionNotifier.value = updatedSlot;
-                            dayParam.slotSelectionParam.onSlotSelectionChange?.call(updatedSlot);
-                          },
-                        ),
-                  );
-                } else {
-                  return SizedBox.shrink();
-                }
-              },
-            ),
+            // slot selection — rendered at planner level to survive
+            // cross-day drags without unmounting the gesture recognizer.
           ],
         ),
       ),
