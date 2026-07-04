@@ -19,7 +19,7 @@ class DayWidget extends StatelessWidget {
     required this.textDirection,
     required this.day,
     required this.todayColor,
-    required this.daySeparationWidthPadding,
+    required this.cellGapWidthPadding,
     required this.plannerHeight,
     required this.heightPerMinute,
     this.plannerTimeMapper,
@@ -38,7 +38,7 @@ class DayWidget extends StatelessWidget {
   final TextDirection textDirection;
   final DateTime day;
   final Color? todayColor;
-  final double daySeparationWidthPadding;
+  final double cellGapWidthPadding;
   final double plannerHeight;
   final double heightPerMinute;
   final PlannerTimeMapper? plannerTimeMapper;
@@ -59,7 +59,7 @@ class DayWidget extends StatelessWidget {
     final mapper = timeMapper;
     var isToday = DateUtils.isSameDay(day, DateTime.now());
     var dayBackgroundColor = isToday && todayColor != null ? todayColor : dayParam.dayColor;
-    var width = dayWidth - (daySeparationWidthPadding * 2);
+    var width = dayWidth - (cellGapWidthPadding * 2);
     var endColumnIndex =
         min(columnsParam.maxColumns != null ? startColumnIndex + columnsParam.maxColumns! : columnsParam.columns, columnsParam.columns);
     var offTimesOfDay = offTimesParam.offTimesDayRanges[day];
@@ -67,8 +67,8 @@ class DayWidget extends StatelessWidget {
 
     return Padding(
       padding: EdgeInsets.only(
-        left: daySeparationWidthPadding,
-        right: daySeparationWidthPadding,
+        left: cellGapWidthPadding,
+        right: cellGapWidthPadding,
         top: dayParam.dayTopPadding,
         bottom: dayParam.dayBottomPadding,
       ),
@@ -376,8 +376,8 @@ class _EventsListWidgetState extends State<EventsListWidget> {
     var right = organizedEvent.right;
     final endMinute = organizedEvent.endDuration.totalMinutes;
     var eventBottom = mapper.minuteToY(endMinute.toDouble());
-    if (mapper.hourCellGapPx > 0 && endMinute > 0 && endMinute < (24 * 60) && endMinute % 60 == 0) {
-      eventBottom -= mapper.hourCellGapPx;
+    if (mapper.cellGapHeight > 0 && endMinute > 0 && endMinute < (24 * 60) && endMinute % 60 == 0) {
+      eventBottom -= mapper.cellGapHeight;
     }
     var bottom = widget.plannerHeight - eventBottom;
     var height = widget.plannerHeight - (bottom + top);

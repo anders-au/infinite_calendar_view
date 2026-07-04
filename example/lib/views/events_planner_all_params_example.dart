@@ -20,7 +20,7 @@ class EventsPlannerAllParamView extends StatelessWidget {
       maxPreviousDays: 365,
       heightPerMinute: 1.0,
       initialVerticalScrollOffset: 1.0 * 7 * 60,
-      daySeparationWidth: 3,
+      cellGapWidth: 3,
       onDayChange: (firstDay) {},
       onVerticalScrollChange: (offset) {},
       automaticAdjustHorizontalScrollToDay: true,

@@ -50,7 +50,7 @@ class _PlannerMultiColumns2State extends State<PlannerMultiColumns2> {
             daysShowed: 1,
             heightPerMinute: heightPerMinute,
             initialVerticalScrollOffset: initialVerticalScrollOffset,
-            daySeparationWidth: 10,
+            cellGapWidth: 10,
 
             // header
             daysHeaderParam: DaysHeaderParam(

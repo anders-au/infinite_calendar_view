@@ -30,9 +30,9 @@ class EventsPlanner extends StatefulWidget {
     this.maxPreviousDays = 365,
     this.maxNextDays = 365,
     this.heightPerMinute = 0.9,
-    this.hourCellGapPx = 0,
+    this.cellGapHeight = 0,
     this.paintGapAfterLastHour = false,
-    this.daySeparationWidth = 3.0,
+    this.cellGapWidth = 3.0,
     this.dayEventsArranger = const SideEventArranger(),
     this.onDayChange,
     this.initialVerticalScrollOffset = 0,
@@ -81,14 +81,15 @@ class EventsPlanner extends StatefulWidget {
   /// Height per minute in day
   final double heightPerMinute;
 
-  /// Visual spacing between hour cells in planner.
-  final double hourCellGapPx;
+  /// Vertical visual spacing between cells in planner.
+  final double cellGapHeight;
+
+  /// Horizontal visual spacing between cells in the planner.
+  final double cellGapWidth;
 
   /// Whether to paint an additional gap after the last hour (23:00-24:00).
   final bool paintGapAfterLastHour;
 
-  /// separation between two day
-  final double daySeparationWidth;
 
   /// Arrange events position in day
   /// See SimpleEventArranger
@@ -205,7 +206,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
   PlannerTimeMapper get plannerTimeMapper => PlannerTimeMapper(
         heightPerMinute: heightPerMinute,
-        hourCellGapPx: widget.hourCellGapPx,
+        cellGapHeight: widget.cellGapHeight,
         paintGapAfterLastHour: widget.paintGapAfterLastHour,
       );
 
@@ -401,7 +402,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   Widget build(BuildContext context) {
     var dayParam = widget.dayParam;
     var plannerHeight = plannerTimeMapper.totalDayHeight() + dayParam.dayTopPadding + dayParam.dayBottomPadding;
-    var daySeparationWidthPadding = widget.daySeparationWidth / 2;
+    var cellGapWidthPadding = widget.cellGapWidth / 2;
     var todayColor = dayParam.todayColor ?? getDefaultTodayColor(context);
     var currentHourIndicatorColor = widget.currentHourIndicatorParam.currentHourIndicatorColor ?? getDefaultHourIndicatorColor(context);
 
@@ -423,7 +424,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
             getHorizontalDaysIndicatorWidget(_startColumnIndex, onColumnIndexChanged),
 
           // full day events
-          if (widget.fullDayParam.fullDayEventsBarVisibility) getHorizontalFullDayEventsWidget(daySeparationWidthPadding, todayColor),
+          if (widget.fullDayParam.fullDayEventsBarVisibility) getHorizontalFullDayEventsWidget(cellGapWidthPadding, todayColor),
         ];
 
         return Column(
@@ -437,7 +438,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
               ),
 
             // days content
-            Expanded(child: getPlannerAndTimesWidget(plannerHeight, currentHourIndicatorColor, todayColor, daySeparationWidthPadding)),
+            Expanded(child: getPlannerAndTimesWidget(plannerHeight, currentHourIndicatorColor, todayColor, cellGapWidthPadding)),
           ],
         );
       },
@@ -493,7 +494,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _headerHorizontalDrag = null;
   }
 
-  Widget getPlannerAndTimesWidget(double plannerHeight, Color currentHourIndicatorColor, Color todayColor, double daySeparationWidthPadding) {
+  Widget getPlannerAndTimesWidget(double plannerHeight, Color currentHourIndicatorColor, Color todayColor, double cellGapWidthPadding) {
     var zoom = widget.pinchToZoomParam;
     var canZoom = zoom.pinchToZoom;
     return GestureDetector(
@@ -530,7 +531,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                             getVerticalTimeIndicatorWidget(currentHourIndicatorColor),
 
                             // day planning infinite list
-                            Expanded(child: getPlannerWidget(todayColor, daySeparationWidthPadding, plannerHeight, currentHourIndicatorColor)),
+                            Expanded(child: getPlannerWidget(todayColor, cellGapWidthPadding, plannerHeight, currentHourIndicatorColor)),
                           ],
                         ),
                       
@@ -545,7 +546,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     );
   }
 
-  Widget getPlannerWidget(Color todayColor, double daySeparationWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
+  Widget getPlannerWidget(Color todayColor, double cellGapWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
     var physics = _plannerPointerDownCount > 1 ? const NeverScrollableScrollPhysics() : widget.horizontalScrollPhysics;
 
     return Stack(
@@ -570,7 +571,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                     textDirection: widget.textDirection,
                     day: day,
                     todayColor: todayColor,
-                    daySeparationWidthPadding: daySeparationWidthPadding,
+                    cellGapWidthPadding: cellGapWidthPadding,
                     plannerHeight: plannerHeight,
                     heightPerMinute: heightPerMinute,
                     plannerTimeMapper: plannerTimeMapper,
@@ -589,12 +590,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
             },
           ),
         ),
-        _buildSlotOverlay(daySeparationWidthPadding, currentHourIndicatorColor),
+        _buildSlotOverlay(cellGapWidthPadding, currentHourIndicatorColor),
       ],
     );
   }
 
-  Widget _buildSlotOverlay(double daySeparationWidthPadding, Color currentHourIndicatorColor) {
+  Widget _buildSlotOverlay(double cellGapWidthPadding, Color currentHourIndicatorColor) {
     return AnimatedBuilder(
       animation: _slotOverlayListenable!,
       builder: (context, _) {
@@ -604,7 +605,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         final dayParam = widget.dayParam;
         final columnsParam = widget.columnsParam;
         final mapper = plannerTimeMapper;
-        final paddedWidth = dayWidth - daySeparationWidthPadding * 2;
+        final paddedWidth = dayWidth - cellGapWidthPadding * 2;
         final columnPositions = columnsParam.getColumPositions(paddedWidth, slot.columnIndex);
 
         // Horizontal: compute day offset from initialDate.
@@ -616,22 +617,22 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         }
         final contentX = dayDiff * dayWidth;
         final viewportX = contentX - mainHorizontalController.offset;
-        final left = viewportX + daySeparationWidthPadding + columnPositions[0];
+        final left = viewportX + cellGapWidthPadding + columnPositions[0];
         final slotWidth = columnPositions[1] - columnPositions[0];
 
         // Vertical: time → pixel.
-        // minteToY includes hourCellGapPx for positioning.  When the slot
+        // minteToY includes cellGapHeight for positioning.  When the slot
         // ends exactly on an hour boundary we subtract the gap, matching
         // the event rendering logic in DayWidget.getEventWidget.
         final startMinute = slot.startDateTime.totalMinutes.toDouble();
         final endMinute = startMinute + slot.durationInMinutes;
         final top = mapper.minuteToY(startMinute);
         double slotBottom = mapper.minuteToY(endMinute);
-        if (mapper.hourCellGapPx > 0 &&
+        if (mapper.cellGapHeight > 0 &&
             endMinute > 0 &&
             endMinute < PlannerTimeMapper.minutesPerDay &&
             endMinute % PlannerTimeMapper.minutesPerHour == 0) {
-          slotBottom -= mapper.hourCellGapPx;
+          slotBottom -= mapper.cellGapHeight;
         }
         final slotHeight = slotBottom - top;
 
@@ -681,13 +682,13 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     );
   }
 
-  HorizontalFullDayEventsWidget getHorizontalFullDayEventsWidget(double daySeparationWidthPadding, Color todayColor) {
+  HorizontalFullDayEventsWidget getHorizontalFullDayEventsWidget(double cellGapWidthPadding, Color todayColor) {
     return HorizontalFullDayEventsWidget(
       controller: _controller,
       textDirection: widget.textDirection,
       fullDayParam: widget.fullDayParam,
       columnsParam: widget.columnsParam,
-      daySeparationWidthPadding: daySeparationWidthPadding,
+      cellGapWidthPadding: cellGapWidthPadding,
       dayHorizontalController: headersHorizontalController,
       maxPreviousDays: widget.maxPreviousDays,
       maxNextDays: widget.maxNextDays,
@@ -773,12 +774,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }) {
     final oldMapper = PlannerTimeMapper(
       heightPerMinute: oldHeightPerMinute,
-      hourCellGapPx: widget.hourCellGapPx,
+      cellGapHeight: widget.cellGapHeight,
       paintGapAfterLastHour: widget.paintGapAfterLastHour,
     );
     final newMapper = PlannerTimeMapper(
       heightPerMinute: newHeightPerMinute,
-      hourCellGapPx: widget.hourCellGapPx,
+      cellGapHeight: widget.cellGapHeight,
       paintGapAfterLastHour: widget.paintGapAfterLastHour,
     );
     final minute = oldMapper.yToMinute(oldOffset);
@@ -1113,7 +1114,7 @@ class FullDayParam {
 
   /// Gap subtracted from the right edge of each event tile.
   /// Use this to prevent tiles from bleeding into the adjacent day column
-  /// when [EventsPlanner.daySeparationWidth] is 0.
+  /// when [EventsPlanner.cellGapWidth] is 0.
   final double eventEndGap;
 }
 

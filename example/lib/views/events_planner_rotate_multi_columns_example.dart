@@ -54,7 +54,7 @@ class _PlannerRotateMultiColumnsState extends State<PlannerRotateMultiColumns> {
               textDirection: TextDirection.rtl,
               heightPerMinute: heightPerMinute,
               initialVerticalScrollOffset: initialVerticalScrollOffset,
-              daySeparationWidth: 10,
+              cellGapWidth: 10,
 
               // header
               daysHeaderParam: DaysHeaderParam(

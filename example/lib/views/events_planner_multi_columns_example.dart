@@ -24,7 +24,7 @@ class PlannerMultiColumns extends StatelessWidget {
       daysShowed: 2,
       heightPerMinute: heightPerMinute,
       initialVerticalScrollOffset: initialVerticalScrollOffset,
-      daySeparationWidth: 10,
+      cellGapWidth: 10,
       columnsParam: ColumnsParam(
         columns: 3,
         columnsWidthRatio: [1 / 3, 1 / 3, 1 / 3],

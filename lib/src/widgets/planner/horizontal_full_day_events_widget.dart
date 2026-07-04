@@ -13,7 +13,7 @@ class HorizontalFullDayEventsWidget extends StatelessWidget {
     this.textDirection = TextDirection.ltr,
     required this.fullDayParam,
     required this.columnsParam,
-    required this.daySeparationWidthPadding,
+    required this.cellGapWidthPadding,
     required this.dayHorizontalController,
     required this.maxPreviousDays,
     required this.maxNextDays,
@@ -27,7 +27,7 @@ class HorizontalFullDayEventsWidget extends StatelessWidget {
   final TextDirection textDirection;
   final FullDayParam fullDayParam;
   final ColumnsParam columnsParam;
-  final double daySeparationWidthPadding;
+  final double cellGapWidthPadding;
   final ScrollController dayHorizontalController;
   final int? maxPreviousDays;
   final int? maxNextDays;
@@ -95,8 +95,8 @@ class HorizontalFullDayEventsWidget extends StatelessWidget {
                               fullDayParam: fullDayParam,
                               columnsParam: columnsParam,
                               dayWidth: dayWidth,
-                              daySeparationWidthPadding:
-                                  daySeparationWidthPadding,
+                              cellGapWidthPadding:
+                                  cellGapWidthPadding,
                             ),
                           );
                         },
@@ -114,7 +114,7 @@ class HorizontalFullDayEventsWidget extends StatelessWidget {
                       scrollController: dayHorizontalController,
                       fullDayParam: fullDayParam,
                       dayWidth: dayWidth,
-                      daySeparationWidthPadding: daySeparationWidthPadding,
+                      cellGapWidthPadding: cellGapWidthPadding,
                       getDayFromIndex: getDayFromIndex,
                     ),
                     ),
@@ -140,7 +140,7 @@ class MultiDayEventsOverlay extends StatefulWidget {
     required this.scrollController,
     required this.fullDayParam,
     required this.dayWidth,
-    required this.daySeparationWidthPadding,
+    required this.cellGapWidthPadding,
     required this.getDayFromIndex,
   });
 
@@ -148,7 +148,7 @@ class MultiDayEventsOverlay extends StatefulWidget {
   final ScrollController scrollController;
   final FullDayParam fullDayParam;
   final double dayWidth;
-  final double daySeparationWidthPadding;
+  final double cellGapWidthPadding;
   final DateTime Function(int index) getDayFromIndex;
 
   @override
@@ -207,7 +207,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     if (!widget.scrollController.hasClients) return const SizedBox.shrink();
 
     final offset = widget.scrollController.positions.first.pixels;
-    final pad = widget.daySeparationWidthPadding;
+    final pad = widget.cellGapWidthPadding;
     final eventHeight = widget.fullDayParam.fullDayEventHeight;
     const rowPadding = 2.0;
     const lookback = 90;
@@ -371,7 +371,7 @@ class FullDayEventsWidget extends StatefulWidget {
     required this.fullDayParam,
     required this.columnsParam,
     required this.dayWidth,
-    required this.daySeparationWidthPadding,
+    required this.cellGapWidthPadding,
   });
 
   final EventsController controller;
@@ -381,7 +381,7 @@ class FullDayEventsWidget extends StatefulWidget {
   final FullDayParam fullDayParam;
   final ColumnsParam columnsParam;
   final double dayWidth;
-  final double daySeparationWidthPadding;
+  final double cellGapWidthPadding;
 
   @override
   State<FullDayEventsWidget> createState() => _FullDayEventsWidgetState();
@@ -414,13 +414,13 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
 
   @override
   Widget build(BuildContext context) {
-    var width = widget.dayWidth - (widget.daySeparationWidthPadding * 2);
+    var width = widget.dayWidth - (widget.cellGapWidthPadding * 2);
 
     // Only render the background colour and optional column dividers.
     // All events are rendered by MultiDayEventsOverlay.
     return Padding(
       padding:
-          EdgeInsets.symmetric(horizontal: widget.daySeparationWidthPadding),
+          EdgeInsets.symmetric(horizontal: widget.cellGapWidthPadding),
       child: Container(
         decoration: BoxDecoration(
           color: widget.isToday && widget.todayColor != null

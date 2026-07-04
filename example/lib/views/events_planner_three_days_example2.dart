@@ -45,7 +45,7 @@ class _PlannerTreeDaysSlotState extends State<PlannerTreeDaysSlot> {
       fullDayParam: FullDayParam(
         fullDayEventsBarVisibility: false,
       ),
-      daySeparationWidth: 0,
+      cellGapWidth: 0,
       dayParam: DayParam(
         onSlotMinutesRound: 60,
         onSlotRoundAlwaysBefore: true,

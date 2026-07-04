@@ -448,7 +448,7 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
       maxPreviousDays: 365,
       heightPerMinute: 1.0,
       initialVerticalScrollOffset: 1.0 * 7 * 60,
-      daySeparationWidth: 3,
+      cellGapWidth: 3,
       onDayChange: (firstDay) {},
       onVerticalScrollChange: (offset) {},
       automaticAdjustHorizontalScrollToDay: true,

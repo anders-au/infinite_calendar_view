@@ -261,7 +261,6 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
         (remainingMins != 0 ? '${remainingMins}m' : '');
 
     return Container(
-      width: double.infinity,
       decoration: BoxDecoration(
         color: accent.withAlpha(25),
         borderRadius: BorderRadius.circular(borderRadius),
@@ -287,7 +286,7 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
             ),
             const Spacer(),
             Text(
-              '$startText - $endText',
+              '$startText – $endText',
               style: theme.textTheme.bodySmall?.copyWith(
                 fontSize: 11,
                 color: theme.colorScheme.onSurface.withAlpha(160),

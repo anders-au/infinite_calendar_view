@@ -4,13 +4,13 @@ import 'dart:math';
 class PlannerTimeMapper {
   const PlannerTimeMapper({
     required this.heightPerMinute,
-    this.hourCellGapPx = 0,
+    this.cellGapHeight = 0,
     this.paintGapAfterLastHour = false,
   })  : assert(heightPerMinute > 0),
-        assert(hourCellGapPx >= 0);
+        assert(cellGapHeight >= 0);
 
   final double heightPerMinute;
-  final double hourCellGapPx;
+  final double cellGapHeight;
   final bool paintGapAfterLastHour;
 
   static const int minutesPerHour = 60;
@@ -19,12 +19,12 @@ class PlannerTimeMapper {
 
   double get hourHeight => heightPerMinute * minutesPerHour;
 
-  double get hourBandHeight => hourHeight + hourCellGapPx;
+  double get hourBandHeight => hourHeight + cellGapHeight;
 
   int get hourGapCount => paintGapAfterLastHour ? hoursPerDay : hoursPerDay - 1;
 
   double totalDayHeight() {
-    return (hourHeight * hoursPerDay) + (hourCellGapPx * hourGapCount);
+    return (hourHeight * hoursPerDay) + (cellGapHeight * hourGapCount);
   }
 
   double minuteToY(double minute) {
