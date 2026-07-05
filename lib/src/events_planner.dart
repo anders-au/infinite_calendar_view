@@ -567,17 +567,30 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 SliverList(
                   
                   delegate: SliverChildBuilderDelegate(childCount: 1, (context, index) {
+                    final isLtr = widget.textDirection == TextDirection.ltr;
                     return SizedBox(
                         height: plannerHeight,
-                        child: Row(
-                          textDirection: widget.textDirection,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Stack(
                           children: [
-                            // left Timeline
-                            getVerticalTimeIndicatorWidget(currentHourIndicatorColor),
-
-                            // day planning infinite list
-                            Expanded(child: getPlannerWidget(todayColor, cellGapWidthPadding, plannerHeight, currentHourIndicatorColor)),
+                            // day planning infinite list — positioned behind
+                            // the time column so that interactive slots
+                            // overflow *under* the time indicators.
+                            Positioned(
+                              left: isLtr ? widget.timesIndicatorsParam.timesIndicatorsWidth : 0,
+                              right: isLtr ? 0 : widget.timesIndicatorsParam.timesIndicatorsWidth,
+                              top: 0,
+                              bottom: 0,
+                              child: getPlannerWidget(todayColor, cellGapWidthPadding, plannerHeight, currentHourIndicatorColor),
+                            ),
+                            // left/right Timeline — rendered on top.
+                            Positioned(
+                              left: isLtr ? 0 : null,
+                              right: isLtr ? null : 0,
+                              top: 0,
+                              bottom: 0,
+                              width: widget.timesIndicatorsParam.timesIndicatorsWidth,
+                              child: getVerticalTimeIndicatorWidget(currentHourIndicatorColor),
+                            ),
                           ],
                         ),
                       
@@ -1139,6 +1152,7 @@ class FullDayParam {
     this.fullDayEventBuilder,
     this.fullDayBackgroundColor,
     this.eventEndGap = 0.0,
+    this.allDaySlotSelectionParam = const AllDaySlotSelectionParam(),
   });
 
   /// visibility of full days events
@@ -1175,6 +1189,98 @@ class FullDayParam {
   /// Use this to prevent tiles from bleeding into the adjacent day column
   /// when [EventsPlanner.cellGapWidth] is 0.
   final double eventEndGap;
+
+  /// Configuration for all-day slot selection (tap/long-press on the
+  /// all-day bar to create an all-day event placeholder).
+  /// Defaults to [AllDaySlotSelectionParam] with all features disabled.
+  final AllDaySlotSelectionParam allDaySlotSelectionParam;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AllDaySlotSelectionParam — configuration for the all-day slot selection
+// pill that appears when the user taps or long-presses a day cell in the
+// all-day events bar.
+// ═══════════════════════════════════════════════════════════════════════════
+
+class AllDaySlotSelectionParam {
+  const AllDaySlotSelectionParam({
+    this.enableTapSlotSelection = false,
+    this.enableLongPressSlotSelection = false,
+    this.clearWhenBackgroundTap = true,
+    this.slotSelectionContentBuilder,
+    this.onSlotSelectionChange,
+    this.onSlotSelectionTap,
+    this.onSlotSelectionLongPress,
+    this.accentColor,
+    this.slotBorderRadius = 8.0,
+    this.showDefaultSlotText = true,
+  });
+
+  /// Enable all-day slot selection when tapping a day cell in the all-day bar.
+  final bool enableTapSlotSelection;
+
+  /// Enable all-day slot selection when long-pressing a day cell.
+  final bool enableLongPressSlotSelection;
+
+  /// Clear the all-day slot selection when the user taps elsewhere
+  /// (either on a day column or on the all-day bar background).
+  final bool clearWhenBackgroundTap;
+
+  /// Custom content builder for the all-day slot selection pill.
+  /// When null and [showDefaultSlotText] is true, a minimal date label is shown.
+  final Widget Function(AllDaySlotSelection slot)? slotSelectionContentBuilder;
+
+  /// Called whenever the all-day slot selection changes (created, updated,
+  /// or cleared).
+  final void Function(AllDaySlotSelection? slot)? onSlotSelectionChange;
+
+  /// Called when the user taps an existing all-day slot selection pill.
+  final void Function(AllDaySlotSelection slot)? onSlotSelectionTap;
+
+  /// Called when the all-day slot selection is first created via long-press.
+  final void Function(AllDaySlotSelection slot)? onSlotSelectionLongPress;
+
+  /// Accent color for the pill border and fill.
+  /// Falls back to [Theme.of(context).colorScheme.secondary].
+  final Color? accentColor;
+
+  /// Border radius for the all-day slot selection pill.
+  /// Defaults to 8.0, matching [SlotSelectionParam.slotBorderRadius].
+  final double slotBorderRadius;
+
+  /// Whether to show a default date label inside the pill.
+  /// Defaults to true.
+  final bool showDefaultSlotText;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AllDaySlotSelection — the data model for an all-day slot selection.
+// ═══════════════════════════════════════════════════════════════════════════
+
+class AllDaySlotSelection {
+  /// The column index within the day (0 if single-column).
+  final int columnIndex;
+
+  /// The date where the gesture started (for potential multi-day drag).
+  final DateTime initialStartDate;
+
+  /// The first day of the selection (time portion is ignored).
+  final DateTime startDate;
+
+  /// The last day of the selection, inclusive.
+  /// Equals [startDate] for a single-day selection.
+  final DateTime endDate;
+
+  const AllDaySlotSelection(
+    this.columnIndex,
+    this.initialStartDate,
+    this.startDate,
+    this.endDate,
+  );
+
+  /// Number of days spanned by this selection (always ≥ 1).
+  int get dayCount =>
+      endDate.withoutTime.difference(startDate.withoutTime).inDays + 1;
 }
 
 class PinchToZoomParameters {
@@ -1477,7 +1583,7 @@ class SlotSelectionParam {
     this.slotSelectionBottomHandleBuilder,
     this.accentColor,
     this.showHandles = true,
-    this.handleZoneSize = 14.0,
+    this.handleZoneSize = 20.0,
     this.dragThreshold = 6.0,
     this.slotBorderRadius = 8.0,
     this.showDefaultSlotText = true,
@@ -1579,3 +1685,6 @@ class SlotSelection {
 
   SlotSelection(this.columnIndex, this.initialStartDateTime, this.startDateTime, this.durationInMinutes);
 }
+
+// See AllDaySlotSelection above, placed between AllDaySlotSelectionParam
+// and PinchToZoomParameters for logical grouping.

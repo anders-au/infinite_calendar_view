@@ -25,6 +25,9 @@ class EventsController extends ChangeNotifier {
   // current interactive slot selection
   final slotSelectionNotifier = ValueNotifier<SlotSelection?>(null);
 
+  // current interactive all-day slot selection
+  final allDaySlotSelectionNotifier = ValueNotifier<AllDaySlotSelection?>(null);
+
   /// modify event data and update UI
   void updateCalendarData(UpdateCalendarDataCallback fn) {
     fn.call(calendarData);

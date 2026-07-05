@@ -243,6 +243,8 @@ class DayWidget extends StatelessWidget {
     if (controller.slotSelectionNotifier.value != null && slotSelectionParam.clearWhenBackgroundTap) {
       controller.slotSelectionNotifier.value = null;
       slotSelectionParam.onSlotSelectionChange?.call(null);
+      // Also clear any all-day slot selection.
+      controller.allDaySlotSelectionNotifier.value = null;
     }
     // init slot selection
     else if ((tap && slotSelectionParam.enableTapSlotSelection) ||
@@ -252,6 +254,8 @@ class DayWidget extends StatelessWidget {
           slotSelectionParam.slotSelectionDefaultDurationInMinutes?.call(column, roundDate) ?? DayParam.defaultSlotSelectionDurationInMinutes;
       controller.slotSelectionNotifier.value = SlotSelection(column, roundDate, roundDate, duration);
       slotSelectionParam.onSlotSelectionChange?.call(controller.slotSelectionNotifier.value);
+      // Clear any all-day slot selection when creating a timed slot.
+      controller.allDaySlotSelectionNotifier.value = null;
     }
   }
 
