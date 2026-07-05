@@ -26,8 +26,10 @@ class VerticalTimeIndicatorWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final theme = Theme.of(context);
+    return Container(
       width: timesIndicatorsParam.timesIndicatorsWidth,
+      color: theme.colorScheme.surface,
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: timesIndicatorsParam.timesIndicatorsHorizontalPadding),
         child: CustomPaint(
@@ -37,9 +39,9 @@ class VerticalTimeIndicatorWidget extends StatelessWidget {
                 plannerTimeMapper: _timeMapper,
                 textDirection: textDirection,
                 showCurrentHour: currentHourIndicatorHourVisibility,
-                hourColor: Theme.of(context).colorScheme.outline,
-                halfHourColor: Theme.of(context).colorScheme.outlineVariant,
-                quarterHourColor: Theme.of(context).colorScheme.outlineVariant,
+                hourColor: theme.colorScheme.outline,
+                halfHourColor: theme.colorScheme.outlineVariant,
+                quarterHourColor: theme.colorScheme.outlineVariant,
                 currentHourIndicatorColor: currentHourIndicatorColor,
               ),
         ),
