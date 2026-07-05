@@ -1038,10 +1038,17 @@ class InteractiveSlotState extends State<InteractiveSlot> {
     double Function(double) minuteFromY,
   ) {
     final slot = widget.slot;
-    final endMinute = _snapEndDate.totalMinutes.toDouble();
-    final endY = mapper.minuteToY(endMinute);
+    // Compute the snap-end minute directly from start + duration rather
+    // than _snapEndDate.totalMinutes.  When the slot ends at 24:00
+    // _snapEndDate is midnight of the *next* day and totalMinutes
+    // returns 0, which would map the handle to the very top of the
+    // planner and break all drag arithmetic.
+    final snapEndMinute = (_snapStartDate.totalMinutes + _snapDurationMin)
+        .clamp(0, PlannerTimeMapper.minutesPerDay)
+        .toDouble();
+    final endY = mapper.minuteToY(snapEndMinute);
     final currentMinute = minuteFromY(endY + localOffset.dy);
-    final rawDelta = currentMinute - endMinute;
+    final rawDelta = currentMinute - snapEndMinute;
     final minutesDeltaRounded = roundMins(rawDelta, round);
     var newDuration = _snapDurationMin + minutesDeltaRounded;
     // Clamp end to 24:00 (midnight).
