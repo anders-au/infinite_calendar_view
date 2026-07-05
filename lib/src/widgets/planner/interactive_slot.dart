@@ -296,6 +296,10 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
   /// Extra vertical padding to keep text clear of handle indicators.
   static const double _handlePadding = 14.0;
 
+  /// Maximum slot width below which horizontal padding is reduced
+  /// to give text more room in narrow columns (e.g., 7-day view).
+  static const double _narrowWidthThreshold = 80.0;
+
   Widget _buildDefaultContent(
     ThemeData theme,
     Color accent,
@@ -347,15 +351,23 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     return _SlotBody(
       accent: accent,
       borderRadius: borderRadius,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          12,
-          handlesVisible ? _handlePadding : 7,
-          12,
-          handlesVisible ? _handlePadding : 7,
-        ),
-        child: isCompact ? _buildCompactText(theme, accent, startText, endText)
-            : _buildFullText(theme, accent, startText, endText, durationText),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < _narrowWidthThreshold;
+          final hPadding = isNarrow ? 4.0 : 12.0;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              hPadding,
+              handlesVisible ? _handlePadding : 7,
+              hPadding,
+              handlesVisible ? _handlePadding : 7,
+            ),
+            child: isCompact
+                ? _buildCompactText(theme, accent, startText, endText)
+                : _buildFullText(
+                    theme, accent, startText, endText, durationText),
+          );
+        },
       ),
     );
   }
@@ -369,13 +381,16 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(
-          startText,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: accent,
-            fontSize: 12,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            startText,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: accent,
+              fontSize: 12,
+            ),
           ),
         ),
       ],
@@ -392,32 +407,41 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text(
-          startText,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: accent,
-            fontSize: 12,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            startText,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: accent,
+              fontSize: 12,
+            ),
           ),
         ),
         const Spacer(),
-        Text(
-          durationText.trim(),
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontSize: 10,
-            color: theme.colorScheme.onSurface.withAlpha(120),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            durationText.trim(),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 10,
+              color: theme.colorScheme.onSurface.withAlpha(120),
+            ),
           ),
         ),
         const Spacer(),
-        Text(
-          endText,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: accent,
-            fontSize: 12,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            endText,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: accent,
+              fontSize: 12,
+            ),
           ),
         ),
       ],
