@@ -713,21 +713,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 onDragStart: () {
                   debugPrint('[EVENTS_PLANNER] onDragStart -> _isSlotDragging=true');
                   _isSlotDragging = true;
-                  // Cancel any running ballistic scroll activity (e.g. a
-                  // leftover fling) so it doesn't fight our auto-scroll
-                  // jumpTo calls and drift back after the drag ends.
-                  if (mainHorizontalController.hasClients) {
-                    mainHorizontalController.position
-                        .animateTo(mainHorizontalController.offset,
-                            duration: Duration.zero,
-                            curve: Curves.linear);
-                  }
-                  if (mainVerticalController.hasClients) {
-                    mainVerticalController.position
-                        .animateTo(mainVerticalController.offset,
-                            duration: Duration.zero,
-                            curve: Curves.linear);
-                  }
                 },
                 onDragEnd: () {
                   debugPrint('[EVENTS_PLANNER] onDragEnd -> _isSlotDragging=false');

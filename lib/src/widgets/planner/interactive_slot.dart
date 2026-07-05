@@ -486,6 +486,30 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     _dragMode = null;
     _dragCommitted = false;
     _accumulatedDelta = Offset.zero;
+
+    // Kill any running ballistic scroll activity (a leftover fling) so
+    // it doesn't fight our auto-scroll jumpTo calls.  We use animateTo
+    // with a non-zero duration to go through beginActivity, which
+    // disposes the old activity.  The target equals current offset so
+    // the driven animation is zero-displacement; when it completes,
+    // goBallistic(0) leaves the controller idle.
+    final hc = widget.horizontalScrollController;
+    if (hc?.hasClients == true) {
+      hc!.animateTo(
+        hc.offset,
+        duration: const Duration(milliseconds: 16),
+        curve: Curves.linear,
+      );
+    }
+    final vc = widget.verticalScrollController;
+    if (vc?.hasClients == true) {
+      vc!.animateTo(
+        vc.offset,
+        duration: const Duration(milliseconds: 16),
+        curve: Curves.linear,
+      );
+    }
+
     _stopAutoScroll();
   }
 
