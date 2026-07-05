@@ -329,14 +329,28 @@ class TopLeftCell extends StatefulWidget {
 }
 
 class TopLeftCellState extends State<TopLeftCell> {
+  VoidCallback? _listener;
+
   @override
   void initState() {
     super.initState();
 
     // rebuild when day change
-    widget.topLeftCellValueNotifier.addListener(() {
-      setState(() {});
-    });
+    _listener = () {
+      if (mounted) {
+        setState(() {});
+      }
+    };
+    widget.topLeftCellValueNotifier.addListener(_listener!);
+  }
+
+  @override
+  void dispose() {
+    if (_listener != null) {
+      widget.topLeftCellValueNotifier.removeListener(_listener!);
+      _listener = null;
+    }
+    super.dispose();
   }
 
   @override

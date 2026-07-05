@@ -130,6 +130,8 @@ class InteractiveSlot extends StatefulWidget {
     this.horizontalScrollController,
     this.autoScrollThreshold = 40.0,
     this.autoScrollMaxSpeed = 8.0,
+    this.viewportLeftInset = 0,
+    this.viewportRightInset = 0,
     this.onDragStart,
     this.onDragEnd,
   });
@@ -154,6 +156,13 @@ class InteractiveSlot extends StatefulWidget {
   /// auto-scrolling begins. Set to 0 to disable auto-scrolling.
   final double autoScrollThreshold;
 
+  /// Horizontal insets to exclude from auto-scroll edge detection.
+  /// Typically set to the time-indicators column width so that
+  /// auto-scroll triggers when the pointer reaches the planner
+  /// content edge, not the far edge of the time column.
+  final double viewportLeftInset;
+  final double viewportRightInset;
+
   /// Maximum scroll speed in logical pixels per tick (~60 fps) when
   /// the pointer is at (or past) the viewport edge.
   final double autoScrollMaxSpeed;
@@ -168,10 +177,10 @@ class InteractiveSlot extends StatefulWidget {
       plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
-  State<InteractiveSlot> createState() => _InteractiveSlotState();
+  State<InteractiveSlot> createState() => InteractiveSlotState();
 }
 
-class _InteractiveSlotState extends State<InteractiveSlot> {
+class InteractiveSlotState extends State<InteractiveSlot> {
   // ── drag state ──────────────────────────────────────────────────────
   _DragMode? _dragMode;
   bool _dragCommitted = false;
@@ -500,6 +509,9 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
   // ── immediate-drag handlers (no long-press delay) ────────────────────
 
   void _onDragStart() {
+    if (debugAutoScroll) {
+      debugPrint('[autoScroll] _onDragStart called');
+    }
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null) return;
 
@@ -536,6 +548,10 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
+    if (debugAutoScroll) {
+      debugPrint('[autoScroll] _onDragUpdate called, delta=(${details.delta.dx.toStringAsFixed(1)},${details.delta.dy.toStringAsFixed(1)}) '
+          'mode=$_dragMode');
+    }
     // Accumulate raw pixel delta — this is independent of widget position,
     // so it stays correct even as the slot is repositioned mid-drag.
     _accumulatedDelta += details.delta;
@@ -560,6 +576,10 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
         _dragMode = _DragMode.resizeBottom;
       } else {
         _dragMode = _DragMode.shift;
+      }
+
+      if (debugAutoScroll) {
+        debugPrint('[autoScroll] drag mode set to $_dragMode');
       }
 
       // Snapshot current slot state.
@@ -597,20 +617,30 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
 
   // ── auto-scroll (edge-triggered) ────────────────────────────────────
 
+  /// Set to `true` to print auto-scroll diagnostics to the console.
+  static bool debugAutoScroll = true;
+
   /// Inspects the last-known global pointer position and starts, updates,
   /// or stops edge-triggered auto-scrolling.
   void _updateAutoScroll() {
     if (widget.autoScrollThreshold <= 0) {
+      if (debugAutoScroll) debugPrint('[autoScroll] SKIP: threshold <= 0');
       return;
     }
     final hasVertical = widget.verticalScrollController?.hasClients == true;
     final hasHorizontal = widget.horizontalScrollController?.hasClients == true;
     if (!hasVertical && !hasHorizontal) {
+      if (debugAutoScroll) {
+        debugPrint('[autoScroll] SKIP: no scroll clients '
+            '(v=${widget.verticalScrollController != null}, vClients=${widget.verticalScrollController?.hasClients}, '
+            'h=${widget.horizontalScrollController != null}, hClients=${widget.horizontalScrollController?.hasClients})');
+      }
       return;
     }
 
     final viewportBounds = _getViewportBounds();
     if (viewportBounds == null) {
+      if (debugAutoScroll) debugPrint('[autoScroll] SKIP: viewportBounds is null');
       return;
     }
 
@@ -625,6 +655,15 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     if (hasVertical) {
       final topDist = pos.dy - viewportBounds.top;
       final bottomDist = viewportBounds.bottom - pos.dy;
+      if (debugAutoScroll) {
+        debugPrint('[autoScroll] vp=(top:${viewportBounds.top.toStringAsFixed(0)}, '
+            'btm:${viewportBounds.bottom.toStringAsFixed(0)}, '
+            'h:${viewportBounds.height.toStringAsFixed(0)}) '
+            'ptr=(${pos.dx.toStringAsFixed(0)},${pos.dy.toStringAsFixed(0)}) '
+            'topDist=${topDist.toStringAsFixed(0)} '
+            'btmDist=${bottomDist.toStringAsFixed(0)} '
+            'thresh=$threshold');
+      }
       if (topDist < threshold) {
         verticalSpeed = -_computeScrollSpeed(topDist, threshold, maxSpeed);
       } else if (bottomDist < threshold) {
@@ -646,6 +685,11 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     if (verticalSpeed == 0 && horizontalSpeed == 0) {
       _stopAutoScroll();
       return;
+    }
+
+    if (debugAutoScroll) {
+      debugPrint('[autoScroll] START timer vSpeed=${verticalSpeed.toStringAsFixed(1)} '
+          'hSpeed=${horizontalSpeed.toStringAsFixed(1)}');
     }
 
     // Start or continue the auto-scroll timer.
@@ -709,6 +753,9 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     }
 
     if (verticalScrollAmount == 0 && horizontalScrollAmount == 0) {
+      if (debugAutoScroll) {
+        debugPrint('[autoScroll] STOP timer — no longer near edge');
+      }
       _stopAutoScroll();
       return;
     }
@@ -734,6 +781,10 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     }
 
     // ── horizontal scroll ──────────────────────────────────────────
+    // When content scrolls horizontally the slot must move by the same
+    // amount to stay under the pointer (the slot's viewport position
+    // depends on the scroll offset).  We compensate _accumulatedDelta
+    // immediately, mirroring the vertical approach above.
     if (horizontalScrollAmount != 0) {
       final controller = widget.horizontalScrollController!;
       final oldOffset = controller.offset;
@@ -744,11 +795,17 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
       final actualDelta = newOffset - oldOffset;
       if (actualDelta.abs() > 0.01) {
         controller.jumpTo(newOffset);
+        // Compensate _accumulatedDelta so the slot stays under the
+        // pointer.  Direction: when scroll moves right (+actualDelta)
+        // the content shifts left, so the pointer is further right
+        // relative to the content; a positive delta moves the slot
+        // to a later day, keeping it under the finger.
         _accumulatedDelta += Offset(actualDelta, 0);
         scrolled = true;
       }
     }
 
+    // ── apply accumulated scroll to the slot ───────────────────────
     if (scrolled) {
       _applyDrag(_accumulatedDelta);
     }
@@ -770,24 +827,51 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     return maxSpeed * (1.0 - distanceFromEdge / threshold);
   }
 
-  /// Walks up the render tree to find a large-enough [RenderBox] that
-  /// serves as the planner viewport, then returns its global bounds.
+  /// Shared viewport-bounds detection usable from both [InteractiveSlot]
+  /// and external callers like [DayWidget].
+  ///
+  /// Walks up the render tree from [context] to find the planner viewport
+  /// [RenderBox] and returns its global bounds, excluding the given insets
+  /// (typically the time-indicator column width).
+  ///
   /// Falls back to the screen size (minus safe areas) if no suitable
   /// ancestor is found.
-  Rect? _getViewportBounds() {
+  static Rect? viewportBoundsOf(
+    BuildContext context, {
+    double leftInset = 0,
+    double rightInset = 0,
+  }) {
+    // Start from the parent so the calling widget's own RenderBox is
+    // never mistaken for the viewport.  This matters for InteractiveSlot
+    // whose own box can grow past the 200 px height threshold during a
+    // resize-top drag, causing it to falsely match.
     RenderObject? current = context.findRenderObject();
+    if (current != null) {
+      final parent = current.parent;
+      current = parent is RenderObject ? parent : null;
+    }
+    RenderBox? best;
+    double bestTop = double.negativeInfinity;
+
+    double screenHeight;
+    try {
+      screenHeight = MediaQuery.of(context).size.height;
+    } catch (_) {
+      screenHeight = double.infinity;
+    }
+
     while (current != null) {
       if (current is RenderBox && current.hasSize) {
         final size = current.size;
-        if (size.width >= 200 && size.height >= 200) {
+        if (size.width >= 200 &&
+            size.height >= 200 &&
+            size.height <= screenHeight) {
           try {
-            final globalOffset = current.localToGlobal(Offset.zero);
-            return Rect.fromLTWH(
-              globalOffset.dx,
-              globalOffset.dy,
-              size.width,
-              size.height,
-            );
+            final globalTop = current.localToGlobal(Offset.zero).dy;
+            if (globalTop > bestTop) {
+              bestTop = globalTop;
+              best = current;
+            }
           } catch (_) {
             // Transform might be unavailable — keep walking.
           }
@@ -801,19 +885,47 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
       }
     }
 
+    if (best != null) {
+      try {
+        final globalOffset = best!.localToGlobal(Offset.zero);
+        if (debugAutoScroll) {
+          debugPrint('[autoScroll] selected viewport: '
+              'type=${best.runtimeType} '
+              'size=${best.size.width.toStringAsFixed(0)}x${best.size.height.toStringAsFixed(0)} '
+              'global=(${globalOffset.dx.toStringAsFixed(0)},${globalOffset.dy.toStringAsFixed(0)}) '
+              'insetL=${leftInset.toStringAsFixed(0)} '
+              'insetR=${rightInset.toStringAsFixed(0)}');
+        }
+        return Rect.fromLTWH(
+          globalOffset.dx + leftInset,
+          globalOffset.dy,
+          best!.size.width - leftInset - rightInset,
+          best!.size.height,
+        );
+      } catch (_) {}
+    }
+
     // Fallback: use the screen dimensions from MediaQuery.
     try {
       final mediaQuery = MediaQuery.of(context);
       final padding = mediaQuery.padding;
       return Rect.fromLTWH(
-        padding.left,
+        padding.left + leftInset,
         padding.top,
-        mediaQuery.size.width - padding.left - padding.right,
+        mediaQuery.size.width - padding.left - padding.right - leftInset - rightInset,
         mediaQuery.size.height - padding.top - padding.bottom,
       );
     } catch (_) {
       return null;
     }
+  }
+
+  Rect? _getViewportBounds() {
+    return viewportBoundsOf(
+      context,
+      leftInset: widget.viewportLeftInset,
+      rightInset: widget.viewportRightInset,
+    );
   }
 
   // ── drag application ─────────────────────────────────────────────────
@@ -862,9 +974,17 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     final minutesDelta = currentMinute - initialMinute;
     final minutesDeltaRounded = roundMins(minutesDelta, round);
     final daysDelta = (localOffset.dx / widget.dayWidth).round();
-    final newStart = _snapStartDate
-        .addCalendarDays(daysDelta)
-        .add(Duration(minutes: minutesDeltaRounded));
+    final targetMidnight =
+        _snapStartDate.withoutTime.addCalendarDays(daysDelta);
+    var newStart =
+        targetMidnight.add(Duration(minutes: _snapStartDate.totalMinutes + minutesDeltaRounded));
+    // Clamp to day boundaries: 00:00 – (24:00 – duration).
+    final maxStartMinute = PlannerTimeMapper.minutesPerDay - _snapDurationMin;
+    final effectiveMinutes = newStart.difference(targetMidnight).inMinutes;
+    final clampedMinute = effectiveMinutes.clamp(0, maxStartMinute);
+    if (clampedMinute != effectiveMinutes) {
+      newStart = targetMidnight.add(Duration(minutes: clampedMinute));
+    }
     widget.onChanged(SlotSelection(
       slot.columnIndex,
       slot.initialStartDateTime,
@@ -886,9 +1006,20 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     final currentMinute = minuteFromY(startY + localOffset.dy);
     final rawDelta = currentMinute - startMinute;
     final minutesDeltaRounded = roundMins(rawDelta, round);
-    final newStart =
-        _snapStartDate.add(Duration(minutes: minutesDeltaRounded));
-    final newDuration = _snapEndDate.totalMinutes - newStart.totalMinutes;
+    final snapMidnight = _snapStartDate.withoutTime;
+    var newStart =
+        snapMidnight.add(Duration(minutes: _snapStartDate.totalMinutes + minutesDeltaRounded));
+    // Clamp start to 00:00, keep at least one rounding-step from midnight.
+    final maxTopMinute = PlannerTimeMapper.minutesPerDay - round;
+    final effectiveMinutes = newStart.difference(snapMidnight).inMinutes;
+    final clampedMinute = effectiveMinutes.clamp(0, maxTopMinute);
+    if (clampedMinute != effectiveMinutes) {
+      newStart = snapMidnight.add(Duration(minutes: clampedMinute));
+    }
+    var newDuration = _snapEndDate.difference(newStart).inMinutes;
+    if (newDuration > PlannerTimeMapper.minutesPerDay) {
+      newDuration = PlannerTimeMapper.minutesPerDay;
+    }
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
       widget.onChanged(SlotSelection(
         slot.columnIndex,
@@ -912,7 +1043,11 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     final currentMinute = minuteFromY(endY + localOffset.dy);
     final rawDelta = currentMinute - endMinute;
     final minutesDeltaRounded = roundMins(rawDelta, round);
-    final newDuration = _snapDurationMin + minutesDeltaRounded;
+    var newDuration = _snapDurationMin + minutesDeltaRounded;
+    // Clamp end to 24:00 (midnight).
+    final maxDuration =
+        PlannerTimeMapper.minutesPerDay - _snapStartDate.totalMinutes;
+    if (newDuration > maxDuration) newDuration = maxDuration;
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
       widget.onChanged(SlotSelection(
         slot.columnIndex,

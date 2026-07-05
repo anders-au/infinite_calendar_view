@@ -11,6 +11,7 @@ import '../../events_planner.dart';
 import '../../painters/events_painters.dart';
 import '../../utils/extension.dart';
 import '../../utils/planner_time_mapper.dart';
+import 'interactive_slot.dart';
 
 class DayWidget extends StatelessWidget {
   const DayWidget({
@@ -32,6 +33,11 @@ class DayWidget extends StatelessWidget {
     required this.currentHourIndicatorColor,
     required this.offTimesParam,
     required this.showMultiDayEvents,
+    this.verticalScrollController,
+    this.horizontalScrollController,
+    this.viewportLeftInset = 0,
+    this.viewportRightInset = 0,
+    this.autoScrollThreshold = 40.0,
   });
 
   final EventsController controller;
@@ -51,6 +57,23 @@ class DayWidget extends StatelessWidget {
   final Color currentHourIndicatorColor;
   final OffTimesParam offTimesParam;
   final bool showMultiDayEvents;
+
+  /// When set, the planner's vertical scroll controller — used for
+  /// edge-triggered auto-scrolling during long-press slot drags.
+  final ScrollController? verticalScrollController;
+
+  /// When set, the planner's horizontal scroll controller — used for
+  /// edge-triggered auto-scrolling during long-press slot drags.
+  final ScrollController? horizontalScrollController;
+
+  /// Horizontal insets to exclude from auto-scroll edge detection
+  /// (time-indicator column width).
+  final double viewportLeftInset;
+  final double viewportRightInset;
+
+  /// Distance in logical pixels from the viewport edge at which
+  /// auto-scrolling begins during a long-press drag.
+  final double autoScrollThreshold;
 
   PlannerTimeMapper get timeMapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
@@ -95,6 +118,9 @@ class DayWidget extends StatelessWidget {
                 newStart,
                 slotSelection.durationInMinutes,
               );
+
+              // ── auto-scroll during long-press drag ──────────────────
+              _applyLongPressAutoScroll(context, details.globalPosition);
             }
           }
         },
@@ -257,6 +283,86 @@ class DayWidget extends StatelessWidget {
       // Clear any all-day slot selection when creating a timed slot.
       controller.allDaySlotSelectionNotifier.value = null;
     }
+  }
+
+  /// Applies edge-triggered auto-scroll during a long-press slot drag.
+  /// Uses the same viewport detection and speed ramp as [InteractiveSlot].
+  void _applyLongPressAutoScroll(BuildContext context, Offset globalPosition) {
+    if (autoScrollThreshold <= 0) return;
+    final vc = verticalScrollController;
+    final hc = horizontalScrollController;
+    if ((vc == null || !vc.hasClients) && (hc == null || !hc.hasClients)) {
+      return;
+    }
+
+    final bounds = InteractiveSlotState.viewportBoundsOf(
+      context,
+      leftInset: viewportLeftInset,
+      rightInset: viewportRightInset,
+    );
+    if (bounds == null) return;
+
+    if (InteractiveSlotState.debugAutoScroll) {
+      debugPrint('[autoScroll-LP] vp=(top:${bounds.top.toStringAsFixed(0)}, '
+          'btm:${bounds.bottom.toStringAsFixed(0)}, '
+          'h:${bounds.height.toStringAsFixed(0)}) '
+          'ptr=(${globalPosition.dx.toStringAsFixed(0)},${globalPosition.dy.toStringAsFixed(0)}) '
+          'topDist=${(globalPosition.dy - bounds.top).toStringAsFixed(0)} '
+          'btmDist=${(bounds.bottom - globalPosition.dy).toStringAsFixed(0)} '
+          'thresh=$autoScrollThreshold');
+    }
+
+    // ── vertical ───────────────────────────────────────────────────
+    if (vc != null && vc.hasClients) {
+      final topDist = globalPosition.dy - bounds.top;
+      final bottomDist = bounds.bottom - globalPosition.dy;
+      double speed = 0;
+      if (topDist < autoScrollThreshold) {
+        speed = -_rampSpeed(topDist);
+      } else if (bottomDist < autoScrollThreshold) {
+        speed = _rampSpeed(bottomDist);
+      }
+      if (speed.abs() > 0.01) {
+        final newOffset = (vc.offset + speed).clamp(
+          vc.position.minScrollExtent,
+          vc.position.maxScrollExtent,
+        );
+        if ((newOffset - vc.offset).abs() > 0.01) {
+          if (InteractiveSlotState.debugAutoScroll) {
+            debugPrint('[autoScroll-LP] VERTICAL jumpTo ${newOffset.toStringAsFixed(0)} '
+                'speed=${speed.toStringAsFixed(1)}');
+          }
+          vc.jumpTo(newOffset);
+        }
+      }
+    }
+
+    // ── horizontal ─────────────────────────────────────────────────
+    if (hc != null && hc.hasClients) {
+      final leftDist = globalPosition.dx - bounds.left;
+      final rightDist = bounds.right - globalPosition.dx;
+      double speed = 0;
+      if (leftDist < autoScrollThreshold) {
+        speed = -_rampSpeed(leftDist);
+      } else if (rightDist < autoScrollThreshold) {
+        speed = _rampSpeed(rightDist);
+      }
+      if (speed.abs() > 0.01) {
+        final newOffset = (hc.offset + speed).clamp(
+          hc.position.minScrollExtent,
+          hc.position.maxScrollExtent,
+        );
+        if ((newOffset - hc.offset).abs() > 0.01) {
+          hc.jumpTo(newOffset);
+        }
+      }
+    }
+  }
+
+  double _rampSpeed(double distanceFromEdge) {
+    if (distanceFromEdge >= autoScrollThreshold) return 0;
+    if (distanceFromEdge <= 0) return 8.0; // maxSpeed
+    return 8.0 * (1.0 - distanceFromEdge / autoScrollThreshold);
   }
 
   DateTime getExactDateTime(double dy) {

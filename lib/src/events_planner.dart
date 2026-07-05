@@ -201,6 +201,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   var _isKeyboardZoomActive = false;
   var _startColumnIndex = 0;
   Drag? _headerHorizontalDrag;
+  VoidCallback? _slotSelectionListener;
   bool _isSlotDragging = false;
   final Object _plannerViewControllerOwner = Object();
   Listenable? _slotOverlayListenable;
@@ -239,6 +240,15 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       };
       mainHorizontalController.addListener(_syncHorizontalControllersListener!);
     }
+
+    // ── Listen for slot dismissal to keep focused day in sync ──────────
+    _slotSelectionListener = () {
+      final val = _controller.slotSelectionNotifier.value;
+      if (val == null && !_isSlotDragging) {
+        _syncCurrentDayFromScroll();
+      }
+    };
+    _controller.slotSelectionNotifier.addListener(_slotSelectionListener!);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // index calculation and first day showed
@@ -303,6 +313,10 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _headerHorizontalDrag?.cancel();
     _headerHorizontalDrag = null;
 
+    if (_slotSelectionListener != null) {
+      _controller.slotSelectionNotifier.removeListener(_slotSelectionListener!);
+      _slotSelectionListener = null;
+    }
     if (_syncHorizontalControllersListener != null) {
       mainHorizontalController.removeListener(_syncHorizontalControllersListener!);
     }
@@ -386,12 +400,10 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     };
   }
 
-  /// Called after an [InteractiveSlot] drag ends. Recalculates the current
-  /// day index (which may have become stale while auto-scroll suppressed the
-  /// day-changing listener) and triggers the snap-to-nearest-day animation
-  /// if [automaticAdjustHorizontalScrollToDay] is enabled and the horizontal
-  /// offset is off a day boundary.
-  void _reconcileAfterSlotDrag() {
+  /// Recalculates the current day index from the horizontal scroll offset
+  /// and updates [currentIndex], [focusedDay], and related notifiers.
+  /// Does NOT perform any scroll-snapping animation.
+  void _syncCurrentDayFromScroll() {
     if (!mainHorizontalController.hasClients || dayWidth == 0) {
       return;
     }
@@ -400,7 +412,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     final halfDay = scroll.offset >= 0 ? halfDayWidth : -halfDayWidth;
     final index = ((scroll.offset + halfDay) / dayWidth).toInt();
 
-    // ── update the day index if auto-scroll changed it ─────────────────
     if (index != currentIndex) {
       currentIndex = index;
       final currentDay = widget.textDirection == TextDirection.ltr
@@ -411,21 +422,41 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       topLeftCellValueNotifier.value = currentDay;
       _hasResolvedVisibleFirstDay = true;
     }
+  }
 
-    // ── snap to nearest day if needed ──────────────────────────────────
-    if (widget.automaticAdjustHorizontalScrollToDay) {
-      final nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
-      if ((nearestDayOffset - scroll.offset).abs() > 0.5) {
-        scroll.animateTo(
-          nearestDayOffset,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeIn,
-        );
-        final adjustedDay =
-            getDayFromIndex((nearestDayOffset / dayWidth).toInt());
-        widget.onAutomaticAdjustHorizontalScroll?.call(adjustedDay);
-      }
+  /// Called after an [InteractiveSlot] drag ends. Scrolls the viewport so
+  /// that the day containing [slotDay] is visible, then synchronizes the
+  /// current day index (which may have become stale while auto-scroll
+  /// suppressed the day-changing listener).
+  void _reconcileAfterSlotDrag(DateTime slotDay) {
+    if (!mainHorizontalController.hasClients || dayWidth == 0) {
+      return;
     }
+
+    // ── compute the scroll offset for the slot's day ───────────────────
+    int dayDiff = slotDay.withoutTime
+        .difference(initialDate.withoutTime)
+        .inDays;
+    if (widget.textDirection == TextDirection.rtl) {
+      dayDiff = -dayDiff;
+    }
+    final targetOffset = dayDiff * dayWidth;
+
+    final scroll = mainHorizontalController;
+
+    // ── scroll to the slot's day so it is fully in view ────────────────
+    if ((targetOffset - scroll.offset).abs() > 0.5) {
+      scroll.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeIn,
+      );
+    }
+
+    // ── update day tracking ────────────────────────────────────────────
+    _syncCurrentDayFromScroll();
+    final adjustedDay = getDayFromIndex(dayDiff);
+    widget.onAutomaticAdjustHorizontalScroll?.call(adjustedDay);
   }
 
   bool _handleKeyEvent(KeyEvent event) {
@@ -606,7 +637,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   Widget getPlannerWidget(Color todayColor, double cellGapWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
-    var physics = _plannerPointerDownCount > 1 ? const NeverScrollableScrollPhysics() : widget.horizontalScrollPhysics;
+    final physics = _plannerPointerDownCount > 1
+        ? const NeverScrollableScrollPhysics()
+        : _isSlotDragging
+            ? const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast)
+            : widget.horizontalScrollPhysics;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -643,6 +678,14 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                     currentHourIndicatorColor: currentHourIndicatorColor,
                     offTimesParam: widget.offTimesParam,
                     showMultiDayEvents: !widget.fullDayParam.showMultiDayEvents,
+                    verticalScrollController: mainVerticalController,
+                    horizontalScrollController: mainHorizontalController,
+                    viewportLeftInset: widget.textDirection == TextDirection.ltr
+                        ? widget.timesIndicatorsParam.timesIndicatorsWidth
+                        : 0,
+                    viewportRightInset: widget.textDirection == TextDirection.ltr
+                        ? 0
+                        : widget.timesIndicatorsParam.timesIndicatorsWidth,
                   );
                 },
               );
@@ -723,12 +766,18 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 plannerTimeMapper: mapper,
                 verticalScrollController: mainVerticalController,
                 horizontalScrollController: mainHorizontalController,
+                viewportLeftInset: widget.textDirection == TextDirection.ltr
+                    ? widget.timesIndicatorsParam.timesIndicatorsWidth
+                    : 0,
+                viewportRightInset: widget.textDirection == TextDirection.ltr
+                    ? 0
+                    : widget.timesIndicatorsParam.timesIndicatorsWidth,
                 onDragStart: () {
-                  _isSlotDragging = true;
+                  setState(() => _isSlotDragging = true);
                 },
                 onDragEnd: () {
-                  _isSlotDragging = false;
-                  _reconcileAfterSlotDrag();
+                  setState(() => _isSlotDragging = false);
+                  _reconcileAfterSlotDrag(slot.startDateTime);
                 },
                 onChanged: (SlotSelection? updatedSlot) {
                   _controller.slotSelectionNotifier.value = updatedSlot;
