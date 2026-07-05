@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/gestures.dart';
@@ -24,6 +25,7 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
     required this.onUpdate,
     required this.onEnd,
     required this.onTap,
+    this.onPointerDown,
   });
 
   final double dragThreshold;
@@ -31,6 +33,7 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
   final void Function(DragUpdateDetails) onUpdate;
   final VoidCallback onEnd;
   final VoidCallback onTap;
+  final VoidCallback? onPointerDown;
 
   Offset? _startGlobal;
   bool _dragStarted = false;
@@ -43,6 +46,7 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
     _pointer = event.pointer;
     _startGlobal = event.position;
     _dragStarted = false;
+    onPointerDown?.call();
   }
 
   @override
@@ -125,6 +129,12 @@ class InteractiveSlot extends StatefulWidget {
     required this.heightPerMinute,
     this.plannerTimeMapper,
     required this.onChanged,
+    this.verticalScrollController,
+    this.horizontalScrollController,
+    this.autoScrollThreshold = 40.0,
+    this.autoScrollMaxSpeed = 8.0,
+    this.onDragStart,
+    this.onDragEnd,
   });
 
   final SlotSelection slot;
@@ -134,6 +144,28 @@ class InteractiveSlot extends StatefulWidget {
   final double heightPerMinute;
   final PlannerTimeMapper? plannerTimeMapper;
   final void Function(SlotSelection? updatedSlot) onChanged;
+
+  /// When set, the planner's vertical scroll controller — used for
+  /// edge-triggered auto-scrolling while dragging or resizing the slot.
+  final ScrollController? verticalScrollController;
+
+  /// When set, the planner's horizontal scroll controller — used for
+  /// edge-triggered auto-scrolling while dragging the slot.
+  final ScrollController? horizontalScrollController;
+
+  /// Distance in logical pixels from the viewport edge at which
+  /// auto-scrolling begins. Set to 0 to disable auto-scrolling.
+  final double autoScrollThreshold;
+
+  /// Maximum scroll speed in logical pixels per tick (~60 fps) when
+  /// the pointer is at (or past) the viewport edge.
+  final double autoScrollMaxSpeed;
+
+  /// Called when a drag gesture begins on this slot.
+  final VoidCallback? onDragStart;
+
+  /// Called when a drag gesture ends (pointer up or cancelled).
+  final VoidCallback? onDragEnd;
 
   PlannerTimeMapper get timeMapper =>
       plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
@@ -157,11 +189,21 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
   MouseCursor _effectiveCursor = SystemMouseCursors.basic;
   bool _isDragging = false;
 
+  // ── auto-scroll state ───────────────────────────────────────────────
+  Timer? _autoScrollTimer;
+  Offset _lastGlobalPosition = Offset.zero;
+
+  @override
+  void dispose() {
+    _stopAutoScroll();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final param = widget.dayParam.slotSelectionParam;
-    final accent = param.accentColor ?? theme.colorScheme.primary;
+    final accent = param.accentColor ?? theme.colorScheme.secondary;
     final borderRadius = param.slotBorderRadius;
     final canDrag = param.canDragSlotSelectionAfterShow;
 
@@ -185,6 +227,7 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
                         param.onSlotSelectionTap?.call(widget.slot);
                         widget.onChanged(null);
                       },
+                      onPointerDown: () => widget.onDragStart?.call(),
                     ),
                     (instance) {},
                   ),
@@ -240,68 +283,144 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     );
   }
 
-  // ── default Google-Calendar-style content ────────────────────────────
+  // ── default content ─────────────────────────────────────────────────
+
+  /// Minimum slot pixel height below which default text is hidden
+  /// to prevent overflow on compressed slots (e.g., 15-minute events).
+  static const double _minTextHeight = 52.0;
+
+  /// Minimum slot pixel height to show the full layout (time range
+  /// and duration). Below this only the start time is shown.
+  static const double _fullTextHeight = 76.0;
+
+  /// Extra vertical padding to keep text clear of handle indicators.
+  static const double _handlePadding = 14.0;
 
   Widget _buildDefaultContent(
     ThemeData theme,
     Color accent,
     double borderRadius,
   ) {
+    final param = widget.dayParam.slotSelectionParam;
     final slot = widget.slot;
+
+    // ── compute slot pixel height ──────────────────────────────────────
+    final slotHeight = slot.durationInMinutes * widget.heightPerMinute;
+
+    // ── decide whether to show text ────────────────────────────────────
+    final showText = param.showDefaultSlotText &&
+        slotHeight >= _minTextHeight;
+
+    if (!showText) {
+      return _SlotBody(accent: accent, borderRadius: borderRadius);
+    }
+
     final duration = Duration(minutes: slot.durationInMinutes);
     final start = slot.startDateTime;
     final end = start.add(duration);
 
-    final startText =
-        '${start.hour.toTimeText()}:${start.minute.toTimeText()}';
-    final endText = '${end.hour.toTimeText()}:${end.minute.toTimeText()}';
+    final use24Hour = param.use24HourFormat;
+    String formatTime(DateTime dt) {
+      final hour = dt.hour;
+      final minute = dt.minute.toTimeText();
+      if (use24Hour) {
+        return '${hour.toTimeText()}:$minute';
+      }
+      final hour12 = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+      final period = hour >= 12 ? 'pm' : 'am';
+      return '$hour12:$minute $period';
+    }
+
+    final startText = formatTime(start);
+    final endText = formatTime(end);
     final hours = duration.inHours;
     final remainingMins = duration.inMinutes % 60;
     final durationText = (hours >= 1 ? '${hours}h ' : '') +
         (remainingMins != 0 ? '${remainingMins}m' : '');
 
-    return Container(
-      decoration: BoxDecoration(
-        color: accent.withAlpha(25),
-        borderRadius: BorderRadius.circular(borderRadius),
-        border: Border(
-          left: BorderSide(
+    // ── determine layout density ──────────────────────────────────────
+    final isCompact = slotHeight < _fullTextHeight;
+
+    // ── extra padding to avoid overlapping handle indicators ───────────
+    final handlesVisible = param.enableSlotSelectionResize && param.showHandles;
+
+    return _SlotBody(
+      accent: accent,
+      borderRadius: borderRadius,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          12,
+          handlesVisible ? _handlePadding : 7,
+          12,
+          handlesVisible ? _handlePadding : 7,
+        ),
+        child: isCompact ? _buildCompactText(theme, accent, startText, endText)
+            : _buildFullText(theme, accent, startText, endText, durationText),
+      ),
+    );
+  }
+
+  Widget _buildCompactText(
+    ThemeData theme,
+    Color accent,
+    String startText,
+    String endText,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          startText,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w600,
             color: accent,
-            width: 4,
+            fontSize: 12,
           ),
         ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.slot.startDateTime.hour > 11 ? endText : startText,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: accent,
-                fontSize: 12,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              '$startText – $endText',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 11,
-                color: theme.colorScheme.onSurface.withAlpha(160),
-              ),
-            ),
-            Text(
-              durationText.trim(),
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 10,
-                color: theme.colorScheme.onSurface.withAlpha(120),
-              ),
-            ),
-          ],
+      ],
+    );
+  }
+
+  Widget _buildFullText(
+    ThemeData theme,
+    Color accent,
+    String startText,
+    String endText,
+    String durationText,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          startText,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: accent,
+            fontSize: 12,
+          ),
         ),
-      ),
+        const Spacer(),
+        Text(
+          durationText.trim(),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 10,
+            color: theme.colorScheme.onSurface.withAlpha(120),
+          ),
+        ),
+        const Spacer(),
+        Text(
+          endText,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: accent,
+            fontSize: 12,
+          ),
+        ),
+      ],
     );
   }
 
@@ -309,8 +428,8 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
 
   Widget _buildHandleIndicator(Color accent, {required bool isTop}) {
     return Positioned(
-      top: isTop ? 0 : null,
-      bottom: isTop ? null : 0,
+      top: isTop ? 6 : null,
+      bottom: isTop ? null : 6,
       left: 0,
       right: 0,
       child: Align(
@@ -341,12 +460,11 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
       return;
     }
 
-    final zoneFraction = widget.dayParam.slotSelectionParam.handleZoneFraction;
-    final zoneHeight = height * zoneFraction;
+    final zoneSize = widget.dayParam.slotSelectionParam.handleZoneSize;
 
-    if (localY < zoneHeight) {
+    if (localY < zoneSize) {
       _updateCursor(SystemMouseCursors.resizeUp);
-    } else if (localY > height - zoneHeight) {
+    } else if (localY > height - zoneSize) {
       _updateCursor(SystemMouseCursors.resizeDown);
     } else {
       _updateCursor(SystemMouseCursors.grab);
@@ -368,12 +486,14 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     _dragMode = null;
     _dragCommitted = false;
     _accumulatedDelta = Offset.zero;
+    _stopAutoScroll();
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
     // Accumulate raw pixel delta — this is independent of widget position,
     // so it stays correct even as the slot is repositioned mid-drag.
     _accumulatedDelta += details.delta;
+    _lastGlobalPosition = details.globalPosition;
 
     if (_dragMode == null) {
       // First movement — determine mode from the touch position.
@@ -385,12 +505,12 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
       final height = renderBox.size.height;
       final param = widget.dayParam.slotSelectionParam;
       final hasResize = param.enableSlotSelectionResize;
-      final zoneHeight = height * param.handleZoneFraction;
+      final zoneSize = param.handleZoneSize;
       final localY = renderBox.globalToLocal(details.globalPosition).dy;
 
-      if (hasResize && localY < zoneHeight) {
+      if (hasResize && localY < zoneSize) {
         _dragMode = _DragMode.resizeTop;
-      } else if (hasResize && localY > height - zoneHeight) {
+      } else if (hasResize && localY > height - zoneSize) {
         _dragMode = _DragMode.resizeBottom;
       } else {
         _dragMode = _DragMode.shift;
@@ -415,14 +535,244 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     }
 
     _applyDrag(_accumulatedDelta);
+    _updateAutoScroll();
   }
 
   void _resetDrag() {
+    _stopAutoScroll();
+    widget.onDragEnd?.call();
     _dragMode = null;
     _dragCommitted = false;
     _accumulatedDelta = Offset.zero;
+    _lastGlobalPosition = Offset.zero;
     setState(() => _isDragging = false);
     _updateCursor(SystemMouseCursors.basic);
+  }
+
+  // ── auto-scroll (edge-triggered) ────────────────────────────────────
+
+  /// Inspects the last-known global pointer position and starts, updates,
+  /// or stops edge-triggered auto-scrolling.
+  void _updateAutoScroll() {
+    if (widget.autoScrollThreshold <= 0) {
+      return;
+    }
+    final hasVertical = widget.verticalScrollController?.hasClients == true;
+    final hasHorizontal = widget.horizontalScrollController?.hasClients == true;
+    if (!hasVertical && !hasHorizontal) {
+      return;
+    }
+
+    final viewportBounds = _getViewportBounds();
+    if (viewportBounds == null) {
+      return;
+    }
+
+    final pos = _lastGlobalPosition;
+    final threshold = widget.autoScrollThreshold;
+    final maxSpeed = widget.autoScrollMaxSpeed;
+
+    double verticalSpeed = 0;
+    double horizontalSpeed = 0;
+
+    // Vertical edge proximity.
+    if (hasVertical) {
+      final topDist = pos.dy - viewportBounds.top;
+      final bottomDist = viewportBounds.bottom - pos.dy;
+      if (topDist < threshold) {
+        verticalSpeed = -_computeScrollSpeed(topDist, threshold, maxSpeed);
+      } else if (bottomDist < threshold) {
+        verticalSpeed = _computeScrollSpeed(bottomDist, threshold, maxSpeed);
+      }
+    }
+
+    // Horizontal edge proximity.
+    if (hasHorizontal) {
+      final leftDist = pos.dx - viewportBounds.left;
+      final rightDist = viewportBounds.right - pos.dx;
+      if (leftDist < threshold) {
+        horizontalSpeed = -_computeScrollSpeed(leftDist, threshold, maxSpeed);
+      } else if (rightDist < threshold) {
+        horizontalSpeed = _computeScrollSpeed(rightDist, threshold, maxSpeed);
+      }
+    }
+
+    if (verticalSpeed == 0 && horizontalSpeed == 0) {
+      _stopAutoScroll();
+      return;
+    }
+
+    // Start or continue the auto-scroll timer.
+    if (_autoScrollTimer == null || !_autoScrollTimer!.isActive) {
+      _autoScrollTimer = Timer.periodic(
+        const Duration(milliseconds: 16),
+        _onAutoScrollTick,
+      );
+      debugPrint('[AUTO_SCROLL] timer started');
+    }
+  }
+
+  void _stopAutoScroll() {
+    if (_autoScrollTimer != null) {
+      debugPrint('[AUTO_SCROLL] timer stopped');
+    }
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+  }
+
+  /// Called every ~16ms while the pointer is near a viewport edge.
+  void _onAutoScrollTick(Timer timer) {
+    if (!mounted) {
+      timer.cancel();
+      _autoScrollTimer = null;
+      return;
+    }
+
+    final viewportBounds = _getViewportBounds();
+    if (viewportBounds == null) {
+      return;
+    }
+
+    final pos = _lastGlobalPosition;
+    final threshold = widget.autoScrollThreshold;
+    final maxSpeed = widget.autoScrollMaxSpeed;
+
+    double verticalScrollAmount = 0;
+    double horizontalScrollAmount = 0;
+
+    // Recalculate speeds based on current pointer position.
+    if (widget.verticalScrollController?.hasClients == true) {
+      final topDist = pos.dy - viewportBounds.top;
+      final bottomDist = viewportBounds.bottom - pos.dy;
+      if (topDist < threshold) {
+        verticalScrollAmount =
+            -_computeScrollSpeed(topDist, threshold, maxSpeed);
+      } else if (bottomDist < threshold) {
+        verticalScrollAmount =
+            _computeScrollSpeed(bottomDist, threshold, maxSpeed);
+      }
+    }
+
+    if (widget.horizontalScrollController?.hasClients == true) {
+      final leftDist = pos.dx - viewportBounds.left;
+      final rightDist = viewportBounds.right - pos.dx;
+      if (leftDist < threshold) {
+        horizontalScrollAmount =
+            -_computeScrollSpeed(leftDist, threshold, maxSpeed);
+      } else if (rightDist < threshold) {
+        horizontalScrollAmount =
+            _computeScrollSpeed(rightDist, threshold, maxSpeed);
+      }
+    }
+
+    if (verticalScrollAmount == 0 && horizontalScrollAmount == 0) {
+      _stopAutoScroll();
+      return;
+    }
+
+    bool scrolled = false;
+
+    // ── vertical scroll ────────────────────────────────────────────
+    if (verticalScrollAmount != 0) {
+      final controller = widget.verticalScrollController!;
+      final oldOffset = controller.offset;
+      final newOffset = (oldOffset + verticalScrollAmount).clamp(
+        controller.position.minScrollExtent,
+        controller.position.maxScrollExtent,
+      );
+      final actualDelta = newOffset - oldOffset;
+      if (actualDelta.abs() > 0.01) {
+        debugPrint('[AUTO_SCROLL] vertical jumpTo old=${oldOffset.toStringAsFixed(1)} new=${newOffset.toStringAsFixed(1)} delta=${actualDelta.toStringAsFixed(1)}');
+        controller.jumpTo(newOffset);
+        // When content scrolls down the slot must move down by the same
+        // amount to stay under the pointer.
+        _accumulatedDelta += Offset(0, actualDelta);
+        scrolled = true;
+      }
+    }
+
+    // ── horizontal scroll ──────────────────────────────────────────
+    if (horizontalScrollAmount != 0) {
+      final controller = widget.horizontalScrollController!;
+      final oldOffset = controller.offset;
+      final newOffset = (oldOffset + horizontalScrollAmount).clamp(
+        controller.position.minScrollExtent,
+        controller.position.maxScrollExtent,
+      );
+      final actualDelta = newOffset - oldOffset;
+      if (actualDelta.abs() > 0.01) {
+        debugPrint('[AUTO_SCROLL] horizontal jumpTo old=${oldOffset.toStringAsFixed(1)} new=${newOffset.toStringAsFixed(1)} delta=${actualDelta.toStringAsFixed(1)}');
+        controller.jumpTo(newOffset);
+        _accumulatedDelta += Offset(actualDelta, 0);
+        scrolled = true;
+      }
+    }
+
+    if (scrolled) {
+      _applyDrag(_accumulatedDelta);
+    }
+  }
+
+  /// Linear speed ramp: 0 at [threshold]-pixels from the edge,
+  /// [maxSpeed] at (or past) the edge.
+  double _computeScrollSpeed(
+    double distanceFromEdge,
+    double threshold,
+    double maxSpeed,
+  ) {
+    if (distanceFromEdge >= threshold) {
+      return 0;
+    }
+    if (distanceFromEdge <= 0) {
+      return maxSpeed;
+    }
+    return maxSpeed * (1.0 - distanceFromEdge / threshold);
+  }
+
+  /// Walks up the render tree to find a large-enough [RenderBox] that
+  /// serves as the planner viewport, then returns its global bounds.
+  /// Falls back to the screen size (minus safe areas) if no suitable
+  /// ancestor is found.
+  Rect? _getViewportBounds() {
+    RenderObject? current = context.findRenderObject();
+    while (current != null) {
+      if (current is RenderBox && current.hasSize) {
+        final size = current.size;
+        if (size.width >= 200 && size.height >= 200) {
+          try {
+            final globalOffset = current.localToGlobal(Offset.zero);
+            return Rect.fromLTWH(
+              globalOffset.dx,
+              globalOffset.dy,
+              size.width,
+              size.height,
+            );
+          } catch (_) {
+            // Transform might be unavailable — keep walking.
+          }
+        }
+      }
+      final parent = current.parent;
+      if (parent is RenderObject) {
+        current = parent;
+      } else {
+        break;
+      }
+    }
+
+    // Fallback: use the screen dimensions from MediaQuery.
+    try {
+      final mediaQuery = MediaQuery.of(context);
+      final padding = mediaQuery.padding;
+      return Rect.fromLTWH(
+        padding.left,
+        padding.top,
+        mediaQuery.size.width - padding.left - padding.right,
+        mediaQuery.size.height - padding.top - padding.bottom,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── drag application ─────────────────────────────────────────────────
@@ -530,5 +880,36 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
         newDuration,
       ));
     }
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// _SlotBody — filled rounded rectangle used as the default slot body.
+// Optionally shows text content via [child].
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _SlotBody extends StatelessWidget {
+  const _SlotBody({
+    required this.accent,
+    required this.borderRadius,
+    this.child,
+  });
+
+  final Color accent;
+  final double borderRadius;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    final fillColor = accent.withAlpha(30);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: fillColor,
+        border: Border.all(color: accent, width: 2),
+        borderRadius: BorderRadius.circular(borderRadius),
+      ),
+      child: child ?? const SizedBox.expand(),
+    );
   }
 }

@@ -14,9 +14,6 @@ If this package helps you, consider giving it a 👍 on pub.dev
 <div style="text-align: center;">
 <img src="https://raw.githubusercontent.com/pickywawa/infinite_calendar_view/master/readme_assets/demo-icon.png" alt="drawing" width="100"/>
 
-https://pickywawa.github.io/infinite_calendar_view_demo/
-</div>
-
 ## Features
 
 - 💙 **Inspired by Outlook and Teams mobile**. Easy to use calendar interface
@@ -165,22 +162,20 @@ https://pickywawa.github.io/infinite_calendar_view_demo/
    Get the latest version in the 'Installing' tab
    on [pub.dev](https://pub.dev/packages/calendar_view/install)
 
-    ```yaml
-    dependencies:
-        infinite_calendar_view: <latest-version>
-    ```
-
+   ```yaml
+   dependencies:
+       infinite_calendar_view: <latest-version>
+   ```
 2. Run pub get.
 
    ```shell
    flutter pub get
    ```
-
 3. Import package.
 
-    ```dart
-    import 'package:infinite_calendar_view/infinite_calendar_view.dart';
-    ```
+   ```dart
+   import 'package:infinite_calendar_view/infinite_calendar_view.dart';
+   ```
 
 ## Implementation
 
@@ -192,139 +187,141 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
 
    ```dart
     EventsController controller = EventsController();
-    ```
-
+   ```
 2. Add calendar views.
 
    For 1 Day Calendar Planner View
 
-    ```dart
-    Scaffold(
-        body: EventsPlanner(
-          controller: controller,
-          daysShowed : 1
-        ),
-    );
-    ```
+   ```dart
+   Scaffold(
+       body: EventsPlanner(
+         controller: controller,
+         daysShowed : 1
+       ),
+   );
+   ```
 
    For 3 Days Calendar Planner View
 
-    ```dart
-    Scaffold(
-        body: EventsPlanner(
-          controller: controller,
-          daysShowed : 3
-        ),
-    );
-    ```
+   ```dart
+   Scaffold(
+       body: EventsPlanner(
+         controller: controller,
+         daysShowed : 3
+       ),
+   );
+   ```
 
    For Calendar Month View
 
-    ```dart
-    Scaffold(
-        body: EventsMonths(
-          controller: controller,
-        ),
-    );
-    ```
+   ```dart
+   Scaffold(
+       body: EventsMonths(
+         controller: controller,
+       ),
+   );
+   ```
 
    For Calendar List View
 
-    ```dart
-    Scaffold(
-        body: EventsList(
-          controller: controller,
-        ),
-    );
-    ```
-
+   ```dart
+   Scaffold(
+       body: EventsList(
+         controller: controller,
+       ),
+   );
+   ```
 3. Use `controller` to add or remove events when you want.
 
    To Add event:
 
-    ```dart
-    final event = Event(
-       startTime: DateTime(2024, 8, 10, 8, 0),
-       endTime: DateTime(2024, 8, 10, 9, 0),
-       title: "Event1"
-    );
+   ```dart
+   final event = Event(
+      startTime: DateTime(2024, 8, 10, 8, 0),
+      endTime: DateTime(2024, 8, 10, 9, 0),
+      title: "Event1"
+   );
 
-    controller.updateCalendarData((calendarData) {
-      calendarData.addEvents([event]);
-    });
-    ```
+   controller.updateCalendarData((calendarData) {
+     calendarData.addEvents([event]);
+   });
+   ```
 
    To Add full day event:
 
-    ```dart
-    final event = Event(
-       isFullDay: true,
-       startTime: DateTime(2024, 8, 10),
-       title: "Full Day Event"
-    );
+   ```dart
+   final event = Event(
+      isFullDay: true,
+      startTime: DateTime(2024, 8, 10),
+      title: "Full Day Event"
+   );
 
-    controller.updateCalendarData((calendarData) {
-      calendarData.addEvents([event]);
-    });
+   controller.updateCalendarData((calendarData) {
+     calendarData.addEvents([event]);
+   });
    ```
 
    As soon as you add or remove events from the controller, it will automatically update the
    calendar
    view assigned to that controller.
-
 4. Use dedicated view controllers for programmatic navigation.
 
-    Planner view controller:
-    ```dart
-    final plannerViewController = PlannerViewController();
+   Planner view controller:
 
-    EventsPlanner(
-       controller: controller,
-       plannerViewController: plannerViewController,
-    )
-    ```
+   ```dart
+   final plannerViewController = PlannerViewController();
 
-    Programmatic planner actions:
-    ```dart
-    await plannerViewController.animateToDate(DateTime(2024, 8, 10));
-    await plannerViewController.nextPage();
-    await plannerViewController.previousPage();
+   EventsPlanner(
+      controller: controller,
+      plannerViewController: plannerViewController,
+   )
+   ```
 
-    await plannerViewController.animateToTime(
-       const TimeOfDay(hour: 9, minute: 30),
-    );
-    await plannerViewController.animateToNow();
+   Programmatic planner actions:
 
-    await plannerViewController.animateToZoom(1.4);
-    plannerViewController.setZoom(1.0);
-    ```
+   ```dart
+   await plannerViewController.animateToDate(DateTime(2024, 8, 10));
+   await plannerViewController.nextPage();
+   await plannerViewController.previousPage();
 
-    Month view controller:
-    ```dart
-    final monthsViewController = MonthsViewController();
+   await plannerViewController.animateToTime(
+      const TimeOfDay(hour: 9, minute: 30),
+   );
+   await plannerViewController.animateToNow();
 
-    EventsMonths(
-       controller: controller,
-       monthsViewController: monthsViewController,
-    )
-    ```
+   await plannerViewController.animateToZoom(1.4);
+   plannerViewController.setZoom(1.0);
+   ```
 
-    Programmatic month actions:
-    ```dart
-    await monthsViewController.animateToDate(DateTime(2024, 8, 1));
-    await monthsViewController.nextPage();
-    await monthsViewController.previousPage();
+   Month view controller:
 
-    await monthsViewController.animateToZoom(130);
-    monthsViewController.setZoom(117);
-    ```
+   ```dart
+   final monthsViewController = MonthsViewController();
 
-    If you do not pass a view controller, the widget creates one internally.
-    Pass your own instance when you need remote control from another widget.
+   EventsMonths(
+      controller: controller,
+      monthsViewController: monthsViewController,
+   )
+   ```
+
+   Programmatic month actions:
+
+   ```dart
+   await monthsViewController.animateToDate(DateTime(2024, 8, 1));
+   await monthsViewController.nextPage();
+   await monthsViewController.previousPage();
+
+   await monthsViewController.animateToZoom(130);
+   monthsViewController.setZoom(117);
+   ```
+
+   If you do not pass a view controller, the widget creates one internally.
+   Pass your own instance when you need remote control from another widget.
 
 ## More on the infinite calendar view
 
 1. For Pinch To Zoom
+
    ```dart
    EventsPlanner(
       controller: controller,
@@ -337,8 +334,8 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
       ),
    );
    ```
-
 2. For Draggable Calendar Event
+
    ```dart
    EventsPlanner(
       controller: controller,
@@ -363,6 +360,7 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
       ),
    );
    ```
+
    ```dart
    void moveEvent(Event oldEvent, DateTime roundStartDateTime, DateTime roundEndDateTime) {
      controller.updateCalendarData((calendarData) {
@@ -376,12 +374,12 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
      });
    }
    ```
-
 3. For interactive calendar slot selection
 
    Active enableTapSlotSelection init slot selection on tap
    Active enableLongPressSlotSelection for draggable slot selection
-   Set onSlotMinutesRound for round slot to nearest slot
+   Set ==onSlotMin==utesRound for round slot to nearest slot
+
    ```dart
    EventsPlanner(
       dayParam: DayParam(
@@ -393,10 +391,10 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
       ),
    )
    ```
-
 4. Manage multiple calendars in the same calendar view with multiple columns
 
    Set columnIndex in Calendar Event
+
    ```dart
    Event(
       columnIndex: 2,
@@ -405,6 +403,7 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
    ```
 
    Set columns number, labels, colors and ratio (optional)
+
    ```dart
    EventsPlanner(
       controller: controller,
@@ -438,6 +437,7 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
 ## All Calendar Parameters
 
 1. Calendar Events Planner all parameters
+
    ```dart
    EventsPlanner(
       key: GlobalKey<EventsPlannerState>(),
@@ -577,8 +577,8 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
       ),
    );
    ```
-
 2. Calendar Events List all parameters
+
    ```dart
    EventsList(
       controller: controller,

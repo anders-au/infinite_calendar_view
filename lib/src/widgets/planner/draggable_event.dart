@@ -12,7 +12,7 @@ class DraggableEventWidget extends StatelessWidget {
     required this.height,
     required this.width,
     required this.onDragEnd,
-    this.onSlotMinutesRound = 15,
+    this.onSlotMinutesRound = 30,
     this.draggableFeedback,
     required this.child,
   });

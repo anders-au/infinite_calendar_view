@@ -70,7 +70,7 @@ class EventsPlannerAllParamView extends StatelessWidget {
         todayColor: Colors.black12,
         dayTopPadding: 10,
         dayBottomPadding: 15,
-        onSlotMinutesRound: 15,
+        onSlotMinutesRound: 30,
         onSlotTap: (columnIndex, exactDateTime, roundDateTime) {},
         onSlotLongTap: (columnIndex, exactDateTime, roundDateTime) {},
         onSlotDoubleTap: (columnIndex, exactDateTime, roundDateTime) {},

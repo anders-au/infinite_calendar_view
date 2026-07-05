@@ -201,6 +201,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   var _isKeyboardZoomActive = false;
   var _startColumnIndex = 0;
   Drag? _headerHorizontalDrag;
+  bool _isSlotDragging = false;
   final Object _plannerViewControllerOwner = Object();
   Listenable? _slotOverlayListenable;
 
@@ -264,7 +265,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         _limitVerticalScrollListener = () {
           var minOffset = widget.minVerticalScrollOffset;
           var maxOffset = widget.maxVerticalScrollOffset;
-          if (_plannerPointerDownCount < 2) {
+          if (_plannerPointerDownCount < 2 && !_isSlotDragging) {
             if (minOffset != null && mainVerticalController.offset < minOffset) {
               mainVerticalController.jumpTo(minOffset);
             }
@@ -340,7 +341,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     var halfDayWidth = (dayWidth / 2);
     var scroll = mainHorizontalController;
     _dayChangingListener = () {
-      if (_listenHorizontalScrollDayChange) {
+      debugPrint('[EVENTS_PLANNER] _dayChangingListener fired - offset=${scroll.offset.toStringAsFixed(1)} _isSlotDragging=$_isSlotDragging');
+      if (_listenHorizontalScrollDayChange && !_isSlotDragging) {
         var halfDay = scroll.offset >= 0 ? halfDayWidth : -halfDayWidth;
         var index = ((scroll.offset + halfDay) / dayWidth).toInt();
         // only when index has changed
@@ -362,10 +364,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   /// call onAutomaticAdjustHorizontalScroll when end adjust
   VoidCallback getAutomaticScrollAdjustListener() {
     return () {
+      debugPrint('[EVENTS_PLANNER] automaticScrollAdjustListener fired - offset=${mainHorizontalController.offset.toStringAsFixed(1)} isScrolling=${mainHorizontalController.position.isScrollingNotifier.value} _isSlotDragging=$_isSlotDragging');
       // when scroll stopped
       var scroll = mainHorizontalController;
       var stopScroll = !scroll.position.isScrollingNotifier.value;
-      if (_listenHorizontalScrollDayChange && stopScroll) {
+      if (_listenHorizontalScrollDayChange && stopScroll && !_isSlotDragging) {
         // Round to nearest day
         var nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
         if (nearestDayOffset != scroll.offset) {
@@ -380,6 +383,49 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         }
       }
     };
+  }
+
+  /// Called after an [InteractiveSlot] drag ends. Recalculates the current
+  /// day index (which may have become stale while auto-scroll suppressed the
+  /// day-changing listener) and triggers the snap-to-nearest-day animation
+  /// if [automaticAdjustHorizontalScrollToDay] is enabled and the horizontal
+  /// offset is off a day boundary.
+  void _reconcileAfterSlotDrag() {
+    debugPrint('[EVENTS_PLANNER] _reconcileAfterSlotDrag called - offset=${mainHorizontalController.offset.toStringAsFixed(1)}');
+    if (!mainHorizontalController.hasClients || dayWidth == 0) {
+      return;
+    }
+    final scroll = mainHorizontalController;
+    final halfDayWidth = dayWidth / 2;
+    final halfDay = scroll.offset >= 0 ? halfDayWidth : -halfDayWidth;
+    final index = ((scroll.offset + halfDay) / dayWidth).toInt();
+
+    // ── update the day index if auto-scroll changed it ─────────────────
+    if (index != currentIndex) {
+      currentIndex = index;
+      final currentDay = widget.textDirection == TextDirection.ltr
+          ? getDayFromIndex(currentIndex)
+          : getDayFromIndex(currentIndex + widget.daysShowed - 1);
+      widget.onDayChange?.call(currentDay);
+      widget.controller.updateFocusedDay(currentDay);
+      topLeftCellValueNotifier.value = currentDay;
+      _hasResolvedVisibleFirstDay = true;
+    }
+
+    // ── snap to nearest day if needed ──────────────────────────────────
+    if (widget.automaticAdjustHorizontalScrollToDay) {
+      final nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
+      if ((nearestDayOffset - scroll.offset).abs() > 0.5) {
+        scroll.animateTo(
+          nearestDayOffset,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeIn,
+        );
+        final adjustedDay =
+            getDayFromIndex((nearestDayOffset / dayWidth).toInt());
+        widget.onAutomaticAdjustHorizontalScroll?.call(adjustedDay);
+      }
+    }
   }
 
   bool _handleKeyEvent(KeyEvent event) {
@@ -624,17 +670,19 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         // minteToY includes cellGapHeight for positioning.  When the slot
         // ends exactly on an hour boundary we subtract the gap, matching
         // the event rendering logic in DayWidget.getEventWidget.
+        // dayTopPadding is added because DayWidget applies it as top
+        // padding, offsetting the time-grid content downwards.
         final startMinute = slot.startDateTime.totalMinutes.toDouble();
         final endMinute = startMinute + slot.durationInMinutes;
-        final top = mapper.minuteToY(startMinute);
-        double slotBottom = mapper.minuteToY(endMinute);
+        final top = mapper.minuteToY(startMinute) + dayParam.dayTopPadding;
+        double slotBottom = mapper.minuteToY(endMinute) + dayParam.dayTopPadding;
         if (mapper.cellGapHeight > 0 &&
             endMinute > 0 &&
             endMinute < PlannerTimeMapper.minutesPerDay &&
             endMinute % PlannerTimeMapper.minutesPerHour == 0) {
           slotBottom -= mapper.cellGapHeight;
         }
-        final slotHeight = slotBottom - top;
+        final double slotHeight = (slotBottom - top).clamp(0, double.infinity);
 
         return Positioned(
           top: top,
@@ -660,6 +708,32 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 columnsParam: columnsParam,
                 heightPerMinute: mapper.heightPerMinute,
                 plannerTimeMapper: mapper,
+                verticalScrollController: mainVerticalController,
+                horizontalScrollController: mainHorizontalController,
+                onDragStart: () {
+                  debugPrint('[EVENTS_PLANNER] onDragStart -> _isSlotDragging=true');
+                  _isSlotDragging = true;
+                  // Cancel any running ballistic scroll activity (e.g. a
+                  // leftover fling) so it doesn't fight our auto-scroll
+                  // jumpTo calls and drift back after the drag ends.
+                  if (mainHorizontalController.hasClients) {
+                    mainHorizontalController.position
+                        .animateTo(mainHorizontalController.offset,
+                            duration: Duration.zero,
+                            curve: Curves.linear);
+                  }
+                  if (mainVerticalController.hasClients) {
+                    mainVerticalController.position
+                        .animateTo(mainVerticalController.offset,
+                            duration: Duration.zero,
+                            curve: Curves.linear);
+                  }
+                },
+                onDragEnd: () {
+                  debugPrint('[EVENTS_PLANNER] onDragEnd -> _isSlotDragging=false');
+                  _isSlotDragging = false;
+                  _reconcileAfterSlotDrag();
+                },
                 onChanged: (SlotSelection? updatedSlot) {
                   _controller.slotSelectionNotifier.value = updatedSlot;
                   dayParam.slotSelectionParam.onSlotSelectionChange
@@ -1345,7 +1419,7 @@ class DayParam {
     this.dayBottomPadding = 20,
     this.dayCustomPainter,
     this.dayEventBuilder,
-    this.onSlotMinutesRound = 15,
+    this.onSlotMinutesRound = 30,
     this.onSlotRoundAlwaysBefore = false,
     this.onSlotTap,
     this.onSlotLongTap,
@@ -1418,9 +1492,11 @@ class SlotSelectionParam {
     this.slotSelectionBottomHandleBuilder,
     this.accentColor,
     this.showHandles = true,
-    this.handleZoneFraction = 0.25,
+    this.handleZoneSize = 14.0,
     this.dragThreshold = 6.0,
     this.slotBorderRadius = 8.0,
+    this.showDefaultSlotText = true,
+    this.use24HourFormat = true,
   });
 
   /// enable interactive slot selection when tap on day slot
@@ -1480,10 +1556,10 @@ class SlotSelectionParam {
   /// (small pill shapes at top and bottom).
   final bool showHandles;
 
-  /// Fraction of the widget height assigned to the top and bottom handle
-  /// zones (0.0 – 0.5). The middle zone is the remainder.
-  /// Defaults to 0.25 (25% top, 50% middle, 25% bottom).
-  final double handleZoneFraction;
+  /// Fixed pixel height of the top and bottom resize zones.
+  /// The middle zone (slot height - 2 * [handleZoneSize]) is the drag zone.
+  /// Defaults to 14.0 pixels.
+  final double handleZoneSize;
 
   /// Minimum pointer movement in logical pixels before a drag action is
   /// committed. Prevents accidental micro-drags. Defaults to 6.0.
@@ -1491,6 +1567,16 @@ class SlotSelectionParam {
 
   /// Border radius for the slot selection pill. Defaults to 8.0.
   final double slotBorderRadius;
+
+  /// Whether to show the default time/duration text inside the slot.
+  /// When false, only a colored fill with a border is shown.
+  /// Defaults to true.
+  final bool showDefaultSlotText;
+
+  /// Whether to use 24-hour format for the default slot text.
+  /// When false, 12-hour format with AM/PM is used.
+  /// Defaults to true (24-hour format).
+  final bool use24HourFormat;
 }
 
 class SlotSelection {
