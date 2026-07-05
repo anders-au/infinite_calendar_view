@@ -341,7 +341,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     var halfDayWidth = (dayWidth / 2);
     var scroll = mainHorizontalController;
     _dayChangingListener = () {
-      debugPrint('[EVENTS_PLANNER] _dayChangingListener fired - offset=${scroll.offset.toStringAsFixed(1)} _isSlotDragging=$_isSlotDragging');
       if (_listenHorizontalScrollDayChange && !_isSlotDragging) {
         var halfDay = scroll.offset >= 0 ? halfDayWidth : -halfDayWidth;
         var index = ((scroll.offset + halfDay) / dayWidth).toInt();
@@ -364,11 +363,13 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   /// call onAutomaticAdjustHorizontalScroll when end adjust
   VoidCallback getAutomaticScrollAdjustListener() {
     return () {
-      debugPrint('[EVENTS_PLANNER] automaticScrollAdjustListener fired - offset=${mainHorizontalController.offset.toStringAsFixed(1)} isScrolling=${mainHorizontalController.position.isScrollingNotifier.value} _isSlotDragging=$_isSlotDragging');
-      // when scroll stopped
+       // when scroll stopped
       var scroll = mainHorizontalController;
       var stopScroll = !scroll.position.isScrollingNotifier.value;
-      if (_listenHorizontalScrollDayChange && stopScroll && !_isSlotDragging) {
+      if (_listenHorizontalScrollDayChange && 
+    stopScroll && 
+    !_isSlotDragging &&
+    _plannerPointerDownCount == 0) {
         // Round to nearest day
         var nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
         if (nearestDayOffset != scroll.offset) {
@@ -391,7 +392,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   /// if [automaticAdjustHorizontalScrollToDay] is enabled and the horizontal
   /// offset is off a day boundary.
   void _reconcileAfterSlotDrag() {
-    debugPrint('[EVENTS_PLANNER] _reconcileAfterSlotDrag called - offset=${mainHorizontalController.offset.toStringAsFixed(1)}');
     if (!mainHorizontalController.hasClients || dayWidth == 0) {
       return;
     }
@@ -716,7 +716,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
               ) ??
               InteractiveSlot(
                 slot: slot,
-                dayWidth: paddedWidth,
+                dayWidth: dayWidth,
                 dayParam: dayParam,
                 columnsParam: columnsParam,
                 heightPerMinute: mapper.heightPerMinute,
@@ -724,11 +724,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 verticalScrollController: mainVerticalController,
                 horizontalScrollController: mainHorizontalController,
                 onDragStart: () {
-                  debugPrint('[EVENTS_PLANNER] onDragStart -> _isSlotDragging=true');
                   _isSlotDragging = true;
                 },
                 onDragEnd: () {
-                  debugPrint('[EVENTS_PLANNER] onDragEnd -> _isSlotDragging=false');
                   _isSlotDragging = false;
                   _reconcileAfterSlotDrag();
                 },
@@ -992,6 +990,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     if (!context.mounted || !mainHorizontalController.hasClients || dayWidth == 0) {
       return;
     }
+    // While a slot is being dragged, suppress bracket snapping so the
+    // view stays pinned (same rationale as _jumpToDate above).
+    if (_isSlotDragging) {
+      widget.controller.updateFocusedDay(date.withoutTime);
+      return;
+    }
     if (_isDayAlreadyVisible(date)) {
       widget.controller.updateFocusedDay(date.withoutTime);
       return;
@@ -1016,6 +1020,14 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
   void _jumpToDate(DateTime date) {
     if (!context.mounted || !mainHorizontalController.hasClients || dayWidth == 0) {
+      return;
+    }
+    // While a slot is being dragged, suppress bracket snapping so the
+    // view stays pinned.  The consumer's onSlotSelectionChange callback
+    // may call jumpToDate on every onChanged tick, which would otherwise
+    // cause the viewport to jump to a different bracket mid-drag.
+    if (_isSlotDragging) {
+      widget.controller.updateFocusedDay(date.withoutTime);
       return;
     }
     if (_isDayAlreadyVisible(date)) {

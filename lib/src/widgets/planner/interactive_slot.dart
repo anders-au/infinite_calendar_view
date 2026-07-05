@@ -25,7 +25,6 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
     required this.onUpdate,
     required this.onEnd,
     required this.onTap,
-    this.onPointerDown,
   });
 
   final double dragThreshold;
@@ -33,7 +32,6 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
   final void Function(DragUpdateDetails) onUpdate;
   final VoidCallback onEnd;
   final VoidCallback onTap;
-  final VoidCallback? onPointerDown;
 
   Offset? _startGlobal;
   bool _dragStarted = false;
@@ -46,7 +44,6 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
     _pointer = event.pointer;
     _startGlobal = event.position;
     _dragStarted = false;
-    onPointerDown?.call();
   }
 
   @override
@@ -227,7 +224,6 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
                         param.onSlotSelectionTap?.call(widget.slot);
                         widget.onChanged(null);
                       },
-                      onPointerDown: () => widget.onDragStart?.call(),
                     ),
                     (instance) {},
                   ),
@@ -427,7 +423,7 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall?.copyWith(
               fontSize: 10,
-              color: theme.colorScheme.onSurface.withAlpha(120),
+              color: accent,
             ),
           ),
         ),
@@ -454,13 +450,13 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
     return Positioned(
       top: isTop ? 6 : null,
       bottom: isTop ? null : 6,
-      left: 0,
-      right: 0,
+      left: 6,
+      right: 6,
       child: Align(
         alignment: isTop ? Alignment.topCenter : Alignment.bottomCenter,
         child: Container(
           width: 36,
-          height: 5,
+          height: 4,
           margin: const EdgeInsets.symmetric(vertical: 2),
           decoration: BoxDecoration(
             color: accent,
@@ -506,6 +502,8 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
   void _onDragStart() {
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null) return;
+
+    widget.onDragStart?.call();
 
     _dragMode = null;
     _dragCommitted = false;
@@ -656,14 +654,11 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
         const Duration(milliseconds: 16),
         _onAutoScrollTick,
       );
-      debugPrint('[AUTO_SCROLL] timer started');
     }
   }
 
   void _stopAutoScroll() {
-    if (_autoScrollTimer != null) {
-      debugPrint('[AUTO_SCROLL] timer stopped');
-    }
+
     _autoScrollTimer?.cancel();
     _autoScrollTimer = null;
   }
@@ -730,7 +725,6 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
       );
       final actualDelta = newOffset - oldOffset;
       if (actualDelta.abs() > 0.01) {
-        debugPrint('[AUTO_SCROLL] vertical jumpTo old=${oldOffset.toStringAsFixed(1)} new=${newOffset.toStringAsFixed(1)} delta=${actualDelta.toStringAsFixed(1)}');
         controller.jumpTo(newOffset);
         // When content scrolls down the slot must move down by the same
         // amount to stay under the pointer.
@@ -749,7 +743,6 @@ class _InteractiveSlotState extends State<InteractiveSlot> {
       );
       final actualDelta = newOffset - oldOffset;
       if (actualDelta.abs() > 0.01) {
-        debugPrint('[AUTO_SCROLL] horizontal jumpTo old=${oldOffset.toStringAsFixed(1)} new=${newOffset.toStringAsFixed(1)} delta=${actualDelta.toStringAsFixed(1)}');
         controller.jumpTo(newOffset);
         _accumulatedDelta += Offset(actualDelta, 0);
         scrolled = true;
