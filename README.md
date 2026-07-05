@@ -451,7 +451,7 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
       cellGapWidth: 3,
       onDayChange: (firstDay) {},
       onVerticalScrollChange: (offset) {},
-      automaticAdjustHorizontalScrollToDay: true,
+      snapToDay: true,
       onAutomaticAdjustHorizontalScroll: (day) {},
       horizontalScrollPhysics: const BouncingScrollPhysics(
         decelerationRate: ScrollDecelerationRate.fast,

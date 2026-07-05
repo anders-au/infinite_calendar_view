@@ -618,7 +618,7 @@ class InteractiveSlotState extends State<InteractiveSlot> {
   // ── auto-scroll (edge-triggered) ────────────────────────────────────
 
   /// Set to `true` to print auto-scroll diagnostics to the console.
-  static bool debugAutoScroll = true;
+  static bool debugAutoScroll = false;
 
   /// Inspects the last-known global pointer position and starts, updates,
   /// or stops edge-triggered auto-scrolling.

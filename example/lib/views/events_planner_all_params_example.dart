@@ -23,7 +23,7 @@ class EventsPlannerAllParamView extends StatelessWidget {
       cellGapWidth: 3,
       onDayChange: (firstDay) {},
       onVerticalScrollChange: (offset) {},
-      automaticAdjustHorizontalScrollToDay: true,
+      snapToDay: true,
       onAutomaticAdjustHorizontalScroll: (day) {},
       horizontalScrollPhysics: const BouncingScrollPhysics(
         decelerationRate: ScrollDecelerationRate.fast,

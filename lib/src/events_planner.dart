@@ -44,7 +44,7 @@ class EventsPlanner extends StatefulWidget {
     this.headerHorizontalScrollController,
     this.horizontalScrollPhysics = const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast),
     this.verticalScrollPhysics,
-    this.automaticAdjustHorizontalScrollToDay = true,
+    this.snapToDay = true,
     this.onAutomaticAdjustHorizontalScroll,
     this.dayParam = const DayParam(),
     this.columnsParam = const ColumnsParam(),
@@ -55,6 +55,11 @@ class EventsPlanner extends StatefulWidget {
     this.pinchToZoomParam = const PinchToZoomParameters(),
     this.plannerViewController,
     this.fullDayParam = const FullDayParam(),
+    this.snapToWeekStart = false,
+    this.startOfWeekDay = 1,
+    this.snapToDaysShowed = true,
+    this.autoScrollToNow = false,
+    this.initialScrollHour = 8,
   });
 
   /// data controller
@@ -134,7 +139,7 @@ class EventsPlanner extends StatefulWidget {
   final ScrollPhysics? verticalScrollPhysics;
 
   /// Automatic adjust horizontal scroll to nearest day and background
-  final bool automaticAdjustHorizontalScrollToDay;
+  final bool snapToDay;
 
   /// Automatic adjust horizontal scroll to nearest day and background
   final void Function(DateTime day)? onAutomaticAdjustHorizontalScroll;
@@ -167,6 +172,63 @@ class EventsPlanner extends StatefulWidget {
 
   // full day parameters
   final FullDayParam fullDayParam;
+
+  /// When true and [daysShowed] == 7, horizontal scrolling snaps to
+  /// week boundaries so the first visible day falls on [startOfWeekDay].
+  ///
+  /// Disabled during interactive-slot drags, re-applied afterward.
+  /// Ignored when [daysShowed] != 7.
+  ///
+  /// Defaults to false.
+  final bool snapToWeekStart;
+
+  /// The weekday that marks the start of each week when
+  /// [snapToWeekStart] is enabled.
+  ///
+  /// Uses the same convention as [DateTime.weekday]:
+  ///   1 = Monday, 2 = Tuesday, ... 7 = Sunday.
+  ///
+  /// Clamped to 1–7. Defaults to 1 (Monday).
+  final int startOfWeekDay;
+
+  /// When true (default), both free-scrolling and programmatic
+  /// navigation ([PlannerViewController.animateToDate],
+  /// [PlannerViewController.jumpToDate]) snap to the nearest page
+  /// boundary — a multiple of [daysShowed] anchored at [initialDate].
+  ///
+  /// For example, with `daysShowed: 3` and an initial date of July 1,
+  /// a free scroll that stops near July 5 snaps to July 4 (the start
+  /// of the July 4–6 page).  Jumping to July 5 snaps the same way.
+  ///
+  /// When false, free-scrolling snaps to the nearest single day,
+  /// and programmatic navigation goes directly to the requested date
+  /// without bracket snapping.
+  ///
+  /// When [snapToWeekStart] is also enabled with `daysShowed: 7`,
+  /// [initialDate] is already aligned to [startOfWeekDay], so page
+  /// boundaries naturally coincide with week boundaries.
+  ///
+  /// Disabled during interactive-slot drags, re-applied afterward.
+  ///
+  /// Defaults to true.
+  final bool snapToDaysShowed;
+
+  /// When true and today is within the visible day range, the planner
+  /// jumps vertically to the current time (minus a 30-minute offset) on
+  /// the first frame.
+  ///
+  /// When true but today is not visible, falls back to
+  /// [initialScrollHour]. When false (default), the existing
+  /// [initialVerticalScrollOffset] is used as-is.
+  ///
+  /// Defaults to false.
+  final bool autoScrollToNow;
+
+  /// The hour (0–23) to scroll to when [autoScrollToNow] is true and
+  /// today is not visible.
+  ///
+  /// Clamped to 0–23. Defaults to 8 (08:00).
+  final int initialScrollHour;
 
   @override
   State createState() => EventsPlannerState();
@@ -218,6 +280,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     heightPerMinute = widget.heightPerMinute;
     _controller = widget.controller;
     initialDate = widget.initialDate?.withoutTime ?? widget.controller.focusedDay;
+    if (widget.snapToWeekStart && widget.daysShowed == 7) {
+      final wsd = widget.startOfWeekDay.clamp(1, 7);
+      final delta = (initialDate.weekday - wsd) % 7;
+      initialDate = DateTime(initialDate.year, initialDate.month,
+          initialDate.day - delta);
+    }
     currentIndex = 0;
     _ownsMainHorizontalController = widget.horizontalScrollController == null;
     _ownsHeadersHorizontalController = widget.headerHorizontalScrollController == null;
@@ -255,7 +323,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       initDayChangingListener();
 
       // Automatic adjust horizontal scroll to nearest day
-      if (widget.automaticAdjustHorizontalScrollToDay) {
+      if (widget.snapToDay) {
         automaticScrollAdjustListener = getAutomaticScrollAdjustListener();
         mainHorizontalController.position.isScrollingNotifier.addListener(automaticScrollAdjustListener!);
       }
@@ -294,6 +362,29 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
       // listen keyboard for zoom in web/desktop
       HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+
+      // auto-scroll to current time on first frame
+      if (widget.autoScrollToNow) {
+        final now = DateTime.now();
+        final today = now.withoutTime;
+        final firstDay = initialDate.withoutTime;
+        final lastDay = firstDay.addCalendarDays(widget.daysShowed - 1);
+        final todayVisible =
+            !today.isBefore(firstDay) && !today.isAfter(lastDay);
+
+        final double targetMinutes;
+        if (todayVisible) {
+          // Scroll to ~30 minutes ago for context.
+          targetMinutes =
+              (now.hour * 60 + now.minute - 30).clamp(0, 24 * 60).toDouble();
+        } else {
+          targetMinutes = widget.initialScrollHour.clamp(0, 23) * 60.0;
+        }
+        final rawOffset =
+            plannerTimeMapper.minuteToY(targetMinutes) +
+            widget.dayParam.dayTopPadding;
+        _jumpToVerticalOffset(rawOffset);
+      }
     });
   }
 
@@ -374,6 +465,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   /// listen mainHorizontalController scroll stop and adjust to nearest day
+  /// (or nearest week boundary when [snapToWeekStart] is enabled).
   /// call onAutomaticAdjustHorizontalScroll when end adjust
   VoidCallback getAutomaticScrollAdjustListener() {
     return () {
@@ -384,8 +476,23 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     stopScroll && 
     !_isSlotDragging &&
     _plannerPointerDownCount == 0) {
-        // Round to nearest day
-        var nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
+        final useWeekSnap =
+            widget.snapToWeekStart && widget.daysShowed == 7;
+
+        double nearestDayOffset;
+        if (useWeekSnap) {
+          nearestDayOffset = _snapToNearestWeekOffset(scroll.offset);
+        } else if (widget.snapToDaysShowed) {
+          // Snap to bracket boundary (multiple of daysShowed).
+          final pageIndex =
+              (scroll.offset / (dayWidth * widget.daysShowed)).round();
+          nearestDayOffset = pageIndex * dayWidth * widget.daysShowed;
+        } else {
+          // Round to nearest day
+          nearestDayOffset =
+              dayWidth * (scroll.offset / dayWidth).round();
+        }
+
         if (nearestDayOffset != scroll.offset) {
           // adjust scroll
           Future.delayed(const Duration(milliseconds: 1), () {
@@ -398,6 +505,59 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         }
       }
     };
+  }
+
+  /// Computes the horizontal scroll offset for the nearest valid week-start
+  /// position.  The first visible day at that offset will have weekday
+  /// matching [EventsPlanner.startOfWeekDay].
+  double _snapToNearestWeekOffset(double currentOffset) {
+    if (dayWidth == 0) return 0;
+    final wsd = widget.startOfWeekDay.clamp(1, 7);
+    final baseIndex = (wsd - initialDate.weekday) % 7;
+    final rawIndex = currentOffset / dayWidth;
+    final k = ((rawIndex - baseIndex) / 7).round();
+    final snapIndex = baseIndex + k * 7;
+    return snapIndex * dayWidth;
+  }
+
+  /// Snaps the horizontal scroll to the nearest valid boundary after a
+  /// scroll ends (covers non-fling drags that stop without velocity).
+  /// Respects [snapToWeekStart] and [snapToDaysShowed].
+  void _snapToNearestDayHorizontal() {
+    if (!mainHorizontalController.hasClients || dayWidth == 0) return;
+    if (_isSlotDragging) return;
+
+    final scroll = mainHorizontalController;
+    final offset = scroll.offset;
+
+    final useWeekSnap = widget.snapToWeekStart && widget.daysShowed == 7;
+
+    double target;
+    if (useWeekSnap) {
+      target = _snapToNearestWeekOffset(offset);
+    } else if (widget.snapToDaysShowed) {
+      // Snap to bracket boundary (multiple of daysShowed).
+      final pageIndex =
+          (offset / (dayWidth * widget.daysShowed)).round();
+      target = pageIndex * dayWidth * widget.daysShowed;
+    } else {
+      // Snap to nearest single day.
+      target = dayWidth * (offset / dayWidth).round();
+    }
+
+    if ((target - offset).abs() > 0.5) {
+      // Defer to next frame — calling animateTo synchronously inside a
+      // ScrollEndNotification is ignored because the scroll system is
+      // still tearing down the previous activity.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mainHorizontalController.hasClients) return;
+        mainHorizontalController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeIn,
+        );
+      });
+    }
   }
 
   /// Recalculates the current day index from the horizontal scroll offset
@@ -425,16 +585,40 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   /// Called after an [InteractiveSlot] drag ends. Scrolls the viewport so
-  /// that the day containing [slotDay] is visible, then synchronizes the
-  /// current day index (which may have become stale while auto-scroll
-  /// suppressed the day-changing listener).
-  void _reconcileAfterSlotDrag(DateTime slotDay) {
+  /// that the day containing [slotDay] is visible (or the week containing it
+  /// when [snapToWeekStart] is enabled), then synchronizes the current day
+  /// index (which may have become stale while auto-scroll suppressed the
+  /// day-changing listener).
+  Future<void> _reconcileAfterSlotDrag(DateTime slotDay) async {
     if (!mainHorizontalController.hasClients || dayWidth == 0) {
       return;
     }
+    final useWeekSnap =
+        widget.snapToWeekStart && widget.daysShowed == 7;
 
-    // ── compute the scroll offset for the slot's day ───────────────────
-    int dayDiff = slotDay.withoutTime
+    DateTime targetDay;
+    if (useWeekSnap) {
+      final wsd = widget.startOfWeekDay.clamp(1, 7);
+      final delta = (slotDay.weekday - wsd) % 7;
+      targetDay =
+          DateTime(slotDay.year, slotDay.month, slotDay.day - delta);
+    } else if (widget.snapToDaysShowed) {
+      // Snap to the bracket that contains the slot, so the slot stays
+      // in context within its page rather than becoming the first column
+      // of a new one.
+      targetDay = _getBracketStartDayForTarget(slotDay);
+    } else {
+      targetDay = slotDay.withoutTime;
+    }
+
+    // ── skip the scroll if the slot's day is already visible ──────────
+    if (_isDayAlreadyVisible(slotDay)) {
+      _syncCurrentDayFromScroll();
+      return;
+    }
+
+    // ── compute the scroll offset for the target day ───────────────────
+    int dayDiff = targetDay
         .difference(initialDate.withoutTime)
         .inDays;
     if (widget.textDirection == TextDirection.rtl) {
@@ -444,16 +628,20 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
     final scroll = mainHorizontalController;
 
-    // ── scroll to the slot's day so it is fully in view ────────────────
+    // ── scroll to the target day so it is fully in view ────────────────
     if ((targetOffset - scroll.offset).abs() > 0.5) {
-      scroll.animateTo(
+      // Suppress the automatic-snap listener while we drive the
+      // animation ourselves so it doesn't fight us mid-flight.
+      _listenHorizontalScrollDayChange = false;
+      await scroll.animateTo(
         targetOffset,
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeIn,
       );
+      _listenHorizontalScrollDayChange = true;
     }
 
-    // ── update day tracking ────────────────────────────────────────────
+    // ── update day tracking (now reading the final scroll position) ────
     _syncCurrentDayFromScroll();
     final adjustedDay = getDayFromIndex(dayDiff);
     widget.onAutomaticAdjustHorizontalScroll?.call(adjustedDay);
@@ -641,15 +829,25 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         ? const NeverScrollableScrollPhysics()
         : _isSlotDragging
             ? const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast)
-            : widget.horizontalScrollPhysics;
+            : DaySnappingScrollPhysics(
+                pageSize: widget.snapToDaysShowed
+                    ? dayWidth * widget.daysShowed
+                    : dayWidth,
+                parent: widget.horizontalScrollPhysics,
+              );
 
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        ScrollConfiguration(
-          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, dragDevices: PointerDeviceKind.values.toSet()),
-          child: InfiniteList(
-            physics: physics,
+        NotificationListener<ScrollEndNotification>(
+          onNotification: (_) {
+            _snapToNearestDayHorizontal();
+            return false;
+          },
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, dragDevices: PointerDeviceKind.values.toSet()),
+            child: InfiniteList(
+              physics: physics,
             controller: mainHorizontalController,
             scrollDirection: Axis.horizontal,
             direction: InfiniteListDirection.multi,
@@ -691,6 +889,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
               );
             },
           ),
+        ),
         ),
         _buildSlotOverlay(cellGapWidthPadding, currentHourIndicatorColor),
       ],
@@ -778,6 +977,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 onDragEnd: () {
                   setState(() => _isSlotDragging = false);
                   _reconcileAfterSlotDrag(slot.startDateTime);
+                  _snapToNearestDayHorizontal();
                 },
                 onChanged: (SlotSelection? updatedSlot) {
                   _controller.slotSelectionNotifier.value = updatedSlot;
@@ -908,7 +1108,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   void _onScaleEnd(ScaleEndDetails details) {
     widget.controller.notifyListeners();
     widget.pinchToZoomParam.onZoomChange?.call(heightPerMinute);
-    if (widget.automaticAdjustHorizontalScrollToDay && automaticScrollAdjustListener != null) {
+    if (widget.snapToDay && automaticScrollAdjustListener != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mainHorizontalController.hasClients) {
           return;
@@ -971,13 +1171,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     return offset;
   }
 
-  DateTime _currentVisibleFirstDay() {
-    if (!_hasResolvedVisibleFirstDay) {
-      return initialDate;
-    }
-    return topLeftCellValueNotifier.value.withoutTime;
-  }
-
   int _floorDiv(int value, int divisor) {
     final quotient = value ~/ divisor;
     final remainder = value % divisor;
@@ -989,10 +1182,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
   DateTime _getBracketStartDayForTarget(DateTime date) {
     final normalized = date.withoutTime;
-    final firstVisibleDay = _currentVisibleFirstDay();
-    final delta = normalized.getDayDifference(firstVisibleDay);
+    final anchor = initialDate;
+    final delta = normalized.getDayDifference(anchor);
     final bracketIndex = _floorDiv(delta, widget.daysShowed);
-    return firstVisibleDay.addCalendarDays(bracketIndex * widget.daysShowed);
+    final result = anchor.addCalendarDays(bracketIndex * widget.daysShowed);
+    return result;
   }
 
   bool _isDayAlreadyVisible(DateTime day) {
@@ -1051,7 +1245,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
     _listenHorizontalScrollDayChange = false;
     try {
-      final targetDay = _getBracketStartDayForTarget(date);
+      final targetDay = widget.snapToDaysShowed
+          ? _getBracketStartDayForTarget(date)
+          : date.withoutTime;
       final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
       if ((offset - mainHorizontalController.offset).abs() < 0.001) {
         return;
@@ -1083,9 +1279,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       widget.controller.updateFocusedDay(date.withoutTime);
       return;
     }
-    final targetDay = _getBracketStartDayForTarget(date);
+    final targetDay = widget.snapToDaysShowed
+        ? _getBracketStartDayForTarget(date)
+        : date.withoutTime;
     _listenHorizontalScrollDayChange = false;
-    final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
+    final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay)); 
     if ((offset - mainHorizontalController.offset).abs() < 0.001) {
       _listenHorizontalScrollDayChange = true;
       return;
@@ -1745,6 +1943,68 @@ class SlotSelection {
   final int durationInMinutes;
 
   SlotSelection(this.columnIndex, this.initialStartDateTime, this.startDateTime, this.durationInMinutes);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// DaySnappingScrollPhysics — snaps flings to the nearest day-column
+// boundary.  Unlike PageScrollPhysics (which snaps to viewport-width
+// pages), this snaps to multiples of [pageSize], which is typically set
+// to [dayWidth] for single-day snapping or [dayWidth * daysShowed] for
+// bracket snapping.
+// ──────────────────────────────────────────────────────────────────────────
+
+class DaySnappingScrollPhysics extends ScrollPhysics {
+  /// The width of one snap unit in logical pixels.
+  final double pageSize;
+
+  const DaySnappingScrollPhysics({
+    required this.pageSize,
+    super.parent,
+  });
+
+  @override
+  DaySnappingScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return DaySnappingScrollPhysics(
+      pageSize: pageSize,
+      parent: buildParent(ancestor),
+    );
+  }
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) {
+    // Let the parent chain handle friction / bouncing.
+    final Simulation? simulation =
+        super.createBallisticSimulation(position, velocity);
+
+    if (simulation == null) {
+      return null;
+    }
+
+    // Find where the simulation would naturally end.
+    final double naturalEnd = simulation.x(double.infinity);
+
+    // Snap the natural end to the nearest page-size boundary.
+    final double snappedEnd =
+        (naturalEnd / pageSize).round() * pageSize;
+
+    if (snappedEnd == naturalEnd) {
+      // Already on a boundary.
+      return simulation;
+    }
+
+    // Create a spring that drives from the current position to the
+    // snapped boundary with the same initial velocity the fling had.
+    return ScrollSpringSimulation(
+      super.spring,
+      position.pixels,
+      snappedEnd,
+      velocity,
+      tolerance: tolerance,
+    );
+  }
 }
 
 // See AllDaySlotSelection above, placed between AllDaySlotSelectionParam
