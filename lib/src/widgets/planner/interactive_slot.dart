@@ -273,17 +273,31 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final accent = param.accentColor ?? theme.colorScheme.secondary;
     final borderRadius = param.slotBorderRadius;
     final canDrag = param.canDragSlotSelectionAfterShow;
+    final slot = widget.slot;
+    final isMultiDay = slot.totalDaysSpanned > 1;
 
+    // ── Multi-day: build content without a slot-wide drag recognizer ─
+    // Only the handle zones get their own drag targets; the rest of the
+    // slot is transparent to pointer events so scroll views work.
+    if (isMultiDay) {
+      return MouseRegion(
+        opaque: false, // transparent to hit testing; hover still fires
+        cursor: _effectiveCursor,
+        onHover: _isDragging ? null : _onHover,
+        onExit: _isDragging ? null : (_) => _updateCursor(null),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: _buildMultiDayBody(theme, accent, borderRadius),
+        ),
+      );
+    }
+
+    // ── Single-day: original slot-wide drag recognizer ───────────────
     return MouseRegion(
       cursor: _effectiveCursor,
       onHover: _isDragging ? null : _onHover,
       onExit: _isDragging ? null : (_) => _updateCursor(null),
       child: Listener(
-        // Listener captures pointer events at the render-object level,
-        // BEFORE they reach the gesture arena.  This gives us a reliable
-        // way to detect PointerCancelEvent even when the gesture arena
-        // has already accepted our recognizer and the system (e.g.,
-        // Android edge gesture) steals the pointer silently.
         behavior: HitTestBehavior.opaque,
         onPointerCancel: _isDragging ? (_) => _onPointerCancelled() : null,
         onPointerUp: _isDragging ? (_) {} : null,
@@ -301,7 +315,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
                         onUpdate: _onDragUpdate,
                         onEnd: _resetDrag,
                         onTap: () {
-                          param.onSlotSelectionTap?.call(widget.slot);
+                          param.onSlotSelectionTap?.call(slot);
                           widget.onChanged(null);
                         },
                       ),
@@ -333,28 +347,307 @@ class InteractiveSlotState extends State<InteractiveSlot>
               ),
               child: Stack(
                 clipBehavior: Clip.none,
-                children: [
-                  // ── content ──────────────────────────────────────────
-                  Positioned.fill(
-                    child: param.slotSelectionContentBuilder
-                            ?.call(widget.slot) ??
-                        _buildDefaultContent(theme, accent, borderRadius),
-                  ),
-
-                  // ── top handle indicator ─────────────────────────────
-                  if (param.enableSlotSelectionResize && param.showHandles)
-                    param.slotSelectionTopHandleBuilder?.call() ??
-                        _buildHandleIndicator(accent, isTop: true),
-
-                  // ── bottom handle indicator ──────────────────────────
-                  if (param.enableSlotSelectionResize && param.showHandles)
-                    param.slotSelectionBottomHandleBuilder?.call() ??
-                        _buildHandleIndicator(accent, isTop: false),
-                ],
+                children: _buildSingleDayChildren(
+                    theme, accent, borderRadius),
               ),
             ),
           );
           },
+        ),
+      ),
+    );
+  }
+
+  /// Builds the default single-day slot interior (original behavior).
+  List<Widget> _buildSingleDayChildren(
+    ThemeData theme,
+    Color accent,
+    double borderRadius,
+  ) {
+    final param = widget.dayParam.slotSelectionParam;
+    return [
+      // ── content ──────────────────────────────────────────
+      Positioned.fill(
+        child: param.slotSelectionContentBuilder
+                ?.call(widget.slot) ??
+            _buildDefaultContent(theme, accent, borderRadius),
+      ),
+
+      // ── top handle indicator ─────────────────────────────
+      if (param.enableSlotSelectionResize && param.showHandles)
+        param.slotSelectionTopHandleBuilder?.call() ??
+            _buildHandleIndicator(accent, isTop: true),
+
+      // ── bottom handle indicator ──────────────────────────
+      if (param.enableSlotSelectionResize && param.showHandles)
+        param.slotSelectionBottomHandleBuilder?.call() ??
+            _buildHandleIndicator(accent, isTop: false),
+    ];
+  }
+
+  /// Builds the body of a multi-day slot: per-day segments, pill handles,
+  /// and drag-target overlays confined to the resize-handle zones.
+  ///
+  /// The centre of the slot has NO gesture recognizer — pointer events
+  /// pass through to the scroll views behind it.  Only the narrow handle
+  /// zones at the absolute start and end of the slot receive their own
+  /// drag recognizers.
+  List<Widget> _buildMultiDayBody(
+    ThemeData theme,
+    Color accent,
+    double borderRadius,
+  ) {
+    final mapper = widget.timeMapper;
+    final param = widget.dayParam.slotSelectionParam;
+    final slot = widget.slot;
+    final canDrag = param.canDragSlotSelectionAfterShow;
+    final hasResize = param.enableSlotSelectionResize;
+    final zoneSize = param.handleZoneSize;
+    final handlesVisible = hasResize && param.showHandles;
+    final totalDays = slot.totalDaysSpanned;
+    final dayHeight = mapper.totalDayHeight();
+    final dayWidth = widget.dayWidth;
+    final startMinuteOfDay = slot.startDateTime.totalMinutes.toDouble();
+    final totalEndMinute =
+        (slot.startDateTime.totalMinutes + slot.durationInMinutes)
+            .toDouble();
+    final endMinuteOfDay =
+        totalEndMinute % PlannerTimeMapper.minutesPerDay;
+
+    final startY = mapper.minuteToY(startMinuteOfDay);
+    final endY = mapper.minuteToY(endMinuteOfDay);
+
+    final List<Widget> children = [];
+
+    // ── 1. Per-day _SlotBody segments (ignore pointer) ────────────
+    // All visual content below is wrapped in IgnorePointer so it does
+    // not absorb hit tests.  Only the drag-target overlays (section 3)
+    // participate in the gesture arena.  This lets horizontal/vertical
+    // scroll pass through the slot's body.
+    for (int d = 0; d < totalDays; d++) {
+      final isFirst = d == 0;
+      final isLast = d == totalDays - 1;
+      final isFull = !isFirst && !isLast;
+
+      final double segTop;
+      final double segHeight;
+
+      if (isFirst) {
+        segTop = startY;
+        segHeight = dayHeight - startY;
+      } else if (isFull) {
+        segTop = 0;
+        segHeight = dayHeight;
+      } else {
+        segTop = 0;
+        segHeight = endY;
+      }
+
+      final bool hideTop = !isFirst;
+      final bool hideBottom = !isLast;
+
+      children.add(
+        Positioned(
+          left: d * dayWidth,
+          top: segTop,
+          width: dayWidth,
+          height: segHeight,
+          child: IgnorePointer(
+            child: _SlotBody(
+              accent: accent,
+              borderRadius: borderRadius,
+              hideTopBorder: hideTop,
+              hideBottomBorder: hideBottom,
+              child: _buildMultiDaySegmentContent(
+                theme: theme,
+                accent: accent,
+                slot: slot,
+                segmentIndex: d,
+                totalDays: totalDays,
+                handlesVisible: handlesVisible,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── 2. Visible pill handles (ignore pointer) ─────────────────
+    if (handlesVisible) {
+      children.add(
+        Positioned(
+          left: 6,
+          top: startY + 6,
+          width: dayWidth - 12,
+          child: IgnorePointer(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: _buildHandlePill(accent),
+            ),
+          ),
+        ),
+      );
+      final lastLeft = (totalDays - 1) * dayWidth;
+      children.add(
+        Positioned(
+          left: lastLeft + 6,
+          top: endY - 14,
+          width: dayWidth - 12,
+          child: IgnorePointer(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: _buildHandlePill(accent),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── 3. Drag-target overlays (ACTIVE hit testing) ─────────────
+    // Only these participate in the gesture arena; they are small
+    // strips at the centre of each handle zone.
+    if (canDrag && hasResize) {
+      final double dragWidth = 40.0;
+      final double dragLeft = (dayWidth - dragWidth) / 2;
+
+      // Top resize handle — first day, startY..startY+zoneSize.
+      children.add(
+        Positioned(
+          left: dragLeft,
+          top: startY,
+          width: dragWidth,
+          height: zoneSize,
+          child: _MultiDayDragTarget(
+            dragThreshold: param.dragThreshold,
+            dragMode: _DragMode.resizeTop,
+            onDragStart: _onDragStart,
+            onDragUpdate: _onDragUpdate,
+            onDragEnd: _resetDrag,
+          ),
+        ),
+      );
+
+      // Bottom resize handle — last day, endY-zoneSize..endY.
+      final lastLeft = (totalDays - 1) * dayWidth + dragLeft;
+      children.add(
+        Positioned(
+          left: lastLeft,
+          top: endY - zoneSize,
+          width: dragWidth,
+          height: zoneSize,
+          child: _MultiDayDragTarget(
+            dragThreshold: param.dragThreshold,
+            dragMode: _DragMode.resizeBottom,
+            onDragStart: _onDragStart,
+            onDragUpdate: _onDragUpdate,
+            onDragEnd: _resetDrag,
+          ),
+        ),
+      );
+    }
+
+    return children;
+  }
+
+  /// Builds the text content for one segment of a multi-day slot.
+  ///
+  /// The first segment shows the start time label at its top, the last
+  /// segment shows the end time label at its bottom, and any full-day
+  /// segments in between show a centered summary label with the overall
+  /// date range and times.
+  Widget _buildMultiDaySegmentContent({
+    required ThemeData theme,
+    required Color accent,
+    required TimedSlotSelection slot,
+    required int segmentIndex,
+    required int totalDays,
+    required bool handlesVisible,
+  }) {
+    final use24Hour = widget.dayParam.slotSelectionParam.use24HourFormat;
+
+    String formatTime(DateTime dt) {
+      final hour = dt.hour;
+      final minute = dt.minute.toTimeText();
+      if (use24Hour) {
+        return '${hour.toTimeText()}:$minute';
+      }
+      final hour12 = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+      final period = hour >= 12 ? 'pm' : 'am';
+      return '$hour12:$minute $period';
+    }
+
+    final start = slot.startDateTime;
+    final end = slot.endDateTime;
+    final isFirst = segmentIndex == 0;
+    final isLast = segmentIndex == totalDays - 1;
+    final isFull = !isFirst && !isLast;
+
+    final vPadding = handlesVisible ? _handlePadding : 7.0;
+
+    if (isFirst) {
+      // Show start time at top of first segment.
+      return Padding(
+        padding: EdgeInsets.only(top: vPadding, left: 6, right: 6),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              formatTime(start),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: accent,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (isFull) {
+      // Centered summary: "Jan 1 6pm – Jan 2 7am"
+      final startLabel =
+          '${start.month}/${start.day} ${formatTime(start)}';
+      final endLabel = '${end.month}/${end.day} ${formatTime(end)}';
+      final label = '$startLabel – $endLabel';
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 6),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w500,
+                color: accent,
+                fontSize: 11,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Last segment: show end time at bottom.
+    return Padding(
+      padding: EdgeInsets.only(bottom: vPadding, left: 6, right: 6),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            formatTime(end),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: accent,
+              fontSize: 12,
+            ),
+          ),
         ),
       ),
     );
@@ -535,6 +828,21 @@ class InteractiveSlotState extends State<InteractiveSlot>
 
   // ── handle indicator (small pill) ────────────────────────────────────
 
+  /// Returns just the handle pill [Container] without any [Positioned]
+  /// wrapper.  Useful when the caller already provides its own positioning
+  /// (e.g., multi-day slot handles placed directly in a Stack).
+  Widget _buildHandlePill(Color accent) {
+    return Container(
+      width: 36,
+      height: 4,
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      decoration: BoxDecoration(
+        color: accent,
+        borderRadius: BorderRadius.circular(3),
+      ),
+    );
+  }
+
   Widget _buildHandleIndicator(Color accent, {required bool isTop}) {
     return Positioned(
       top: isTop ? 6 : null,
@@ -543,15 +851,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
       right: 6,
       child: Align(
         alignment: isTop ? Alignment.topCenter : Alignment.bottomCenter,
-        child: Container(
-          width: 36,
-          height: 4,
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          decoration: BoxDecoration(
-            color: accent,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
+        child: _buildHandlePill(accent),
       ),
     );
   }
@@ -561,8 +861,12 @@ class InteractiveSlotState extends State<InteractiveSlot>
   void _onHover(PointerHoverEvent event) {
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null) return;
-    final localY = renderBox.globalToLocal(event.position).dy;
+    final localPos = renderBox.globalToLocal(event.position);
+    final localY = localPos.dy;
+    final localX = localPos.dx;
     final height = renderBox.size.height;
+    final slot = widget.slot;
+    final isMultiDay = slot.totalDaysSpanned > 1;
 
     if (!widget.dayParam.slotSelectionParam.enableSlotSelectionResize) {
       _updateCursor(SystemMouseCursors.grab);
@@ -570,7 +874,36 @@ class InteractiveSlotState extends State<InteractiveSlot>
     }
 
     final zoneSize = widget.dayParam.slotSelectionParam.handleZoneSize;
+    final mapper = widget.timeMapper;
+    final dayHeight = mapper.totalDayHeight();
+    final dayWidth = widget.dayWidth;
 
+    if (isMultiDay) {
+      // Multi-day: determine which semantic zone the pointer is in.
+      final pointerDay = (localX / dayWidth).floor().clamp(0, slot.totalDaysSpanned - 1);
+      final startMinuteOfDay = slot.startDateTime.totalMinutes.toDouble();
+      final startY = mapper.minuteToY(startMinuteOfDay);
+      final totalEndMinute = (slot.startDateTime.totalMinutes + slot.durationInMinutes).toDouble();
+      final endMinuteOfDay = totalEndMinute % PlannerTimeMapper.minutesPerDay;
+      final endY = mapper.minuteToY(endMinuteOfDay);
+
+      // Top handle: pointer is on the first day and near the top of the first segment.
+      if (pointerDay == 0 && localY >= startY && localY <= startY + zoneSize) {
+        _updateCursor(SystemMouseCursors.resizeUp);
+        return;
+      }
+      // Bottom handle: pointer is on the last day and near the bottom of the last segment.
+      if (pointerDay == slot.totalDaysSpanned - 1 &&
+          localY >= endY - zoneSize &&
+          localY <= endY) {
+        _updateCursor(SystemMouseCursors.resizeDown);
+        return;
+      }
+      _updateCursor(SystemMouseCursors.grab);
+      return;
+    }
+
+    // Single-day: original logic.
     if (localY < zoneSize) {
       _updateCursor(SystemMouseCursors.resizeUp);
     } else if (localY > height - zoneSize) {
@@ -629,12 +962,11 @@ class InteractiveSlotState extends State<InteractiveSlot>
     _lastDragUpdateTime = DateTime.now();
 
     if (_dragMode == null) {
-      // First movement — determine mode from the touch position.
+      // _MultiDayDragTarget pre-sets _dragMode — only single-day slots
+      // need position-based detection here.
       final renderBox = context.findRenderObject() as RenderBox?;
       if (renderBox == null) return;
 
-      // On the very first PointerMoveEvent the widget hasn't moved yet
-      // (no onChanged has fired), so localPosition is accurate.
       final height = renderBox.size.height;
       final param = widget.dayParam.slotSelectionParam;
       final hasResize = param.enableSlotSelectionResize;
@@ -652,9 +984,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
       if (debugAutoScroll) {
         debugPrint('[autoScroll] drag mode set to $_dragMode');
       }
-
-      // Snapshot current slot state.
-      final slot = widget.slot;
+      final slot =  widget.slot;
       _snapStartDate = slot.startDateTime;
       _snapEndDate =
           _snapStartDate.add(Duration(minutes: slot.durationInMinutes));
@@ -1043,7 +1373,14 @@ class InteractiveSlotState extends State<InteractiveSlot>
       return step * (value / step).round();
     }
 
-    double minuteFromY(double y) => mapper.yToMinute(y);
+    double minuteFromY(double y) {
+      final maxDays =
+          widget.dayParam.slotSelectionParam.maxMultiDayDuration;
+      if (maxDays != null) {
+        return mapper.yToMinuteExtended(y);
+      }
+      return mapper.yToMinute(y);
+    }
 
     switch (_dragMode) {
       case _DragMode.shift:
@@ -1077,14 +1414,27 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final daysDelta = (localOffset.dx / widget.dayWidth).round();
     final targetMidnight =
         _snapStartDate.withoutTime.addCalendarDays(daysDelta);
-    var newStart =
+    // DateTime.add handles minute values that cross day boundaries, so
+    // we no longer clamp to a single-day range.  Multi-day slots can
+    // freely move across midnight.
+    final newStart =
         targetMidnight.add(Duration(minutes: _snapStartDate.totalMinutes + minutesDeltaRounded));
-    // Clamp to day boundaries: 00:00 – (24:00 – duration).
-    final maxStartMinute = PlannerTimeMapper.minutesPerDay - _snapDurationMin;
-    final effectiveMinutes = newStart.difference(targetMidnight).inMinutes;
-    final clampedMinute = effectiveMinutes.clamp(0, maxStartMinute);
-    if (clampedMinute != effectiveMinutes) {
-      newStart = targetMidnight.add(Duration(minutes: clampedMinute));
+    // Only clamp if multi-day is NOT enabled and the slot would cross midnight.
+    final maxDays = widget.dayParam.slotSelectionParam.maxMultiDayDuration;
+    if (maxDays == null) {
+      final maxStartMinute = PlannerTimeMapper.minutesPerDay - _snapDurationMin;
+      final effectiveMinutes = newStart.difference(targetMidnight).inMinutes;
+      final clampedMinute = effectiveMinutes.clamp(0, maxStartMinute);
+      if (clampedMinute != effectiveMinutes) {
+        final clampedStart = targetMidnight.add(Duration(minutes: clampedMinute));
+        widget.onChanged(TimedSlotSelection(
+          columnIndex: slot.columnIndex,
+          initialStartDate: slot.initialStartDate,
+          startDateTime: clampedStart,
+          durationInMinutes: _snapDurationMin,
+        ));
+        return;
+      }
     }
     widget.onChanged(TimedSlotSelection(
       columnIndex: slot.columnIndex,
@@ -1108,18 +1458,26 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final rawDelta = currentMinute - startMinute;
     final minutesDeltaRounded = roundMins(rawDelta, round);
     final snapMidnight = _snapStartDate.withoutTime;
-    var newStart =
+    // DateTime.add naturally handles negative minute values (previous day).
+    final newStart =
         snapMidnight.add(Duration(minutes: _snapStartDate.totalMinutes + minutesDeltaRounded));
-    // Clamp start to 00:00, keep at least one rounding-step from midnight.
-    final maxTopMinute = PlannerTimeMapper.minutesPerDay - round;
-    final effectiveMinutes = newStart.difference(snapMidnight).inMinutes;
-    final clampedMinute = effectiveMinutes.clamp(0, maxTopMinute);
-    if (clampedMinute != effectiveMinutes) {
-      newStart = snapMidnight.add(Duration(minutes: clampedMinute));
-    }
     var newDuration = _snapEndDate.difference(newStart).inMinutes;
-    if (newDuration > PlannerTimeMapper.minutesPerDay) {
-      newDuration = PlannerTimeMapper.minutesPerDay;
+    final maxDays = widget.dayParam.slotSelectionParam.maxMultiDayDuration;
+    if (maxDays != null) {
+      final maxMinutes = maxDays * PlannerTimeMapper.minutesPerDay;
+      newDuration = newDuration.clamp(round, maxMinutes);
+    } else {
+      // Legacy: single-day cap.
+      final maxTopMinute = PlannerTimeMapper.minutesPerDay - round;
+      final effective = newStart.difference(snapMidnight).inMinutes;
+      final clamped = effective.clamp(0, maxTopMinute);
+      if (clamped != effective) {
+        final clampedStart = snapMidnight.add(Duration(minutes: clamped));
+        newDuration = _snapEndDate.difference(clampedStart).inMinutes;
+      }
+      if (newDuration > PlannerTimeMapper.minutesPerDay) {
+        newDuration = PlannerTimeMapper.minutesPerDay;
+      }
     }
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
       widget.onChanged(TimedSlotSelection(
@@ -1139,23 +1497,25 @@ class InteractiveSlotState extends State<InteractiveSlot>
     double Function(double) minuteFromY,
   ) {
     final slot = widget.slot;
-    // Compute the snap-end minute directly from start + duration rather
-    // than _snapEndDate.totalMinutes.  When the slot ends at 24:00
-    // _snapEndDate is midnight of the *next* day and totalMinutes
-    // returns 0, which would map the handle to the very top of the
-    // planner and break all drag arithmetic.
-    final snapEndMinute = (_snapStartDate.totalMinutes + _snapDurationMin)
-        .clamp(0, PlannerTimeMapper.minutesPerDay)
-        .toDouble();
-    final endY = mapper.minuteToY(snapEndMinute);
+    // Absolute end minute from day 0 midnight (not clamped to 1440).
+    final snapEndMinute =
+        (_snapStartDate.totalMinutes + _snapDurationMin).toDouble();
+    final endY = mapper.minuteToYExtended(snapEndMinute);
     final currentMinute = minuteFromY(endY + localOffset.dy);
     final rawDelta = currentMinute - snapEndMinute;
     final minutesDeltaRounded = roundMins(rawDelta, round);
     var newDuration = _snapDurationMin + minutesDeltaRounded;
-    // Clamp end to 24:00 (midnight).
-    final maxDuration =
-        PlannerTimeMapper.minutesPerDay - _snapStartDate.totalMinutes;
-    if (newDuration > maxDuration) newDuration = maxDuration;
+    // Cap duration based on configured maximum.
+    final maxDays = widget.dayParam.slotSelectionParam.maxMultiDayDuration;
+    if (maxDays != null) {
+      final maxMinutes = maxDays * PlannerTimeMapper.minutesPerDay;
+      if (newDuration > maxMinutes) newDuration = maxMinutes;
+    } else {
+      // Legacy: single-day cap.
+      final maxDuration =
+          PlannerTimeMapper.minutesPerDay - _snapStartDate.totalMinutes;
+      if (newDuration > maxDuration) newDuration = maxDuration;
+    }
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
       widget.onChanged(TimedSlotSelection(
         columnIndex: slot.columnIndex,
@@ -1164,6 +1524,51 @@ class InteractiveSlotState extends State<InteractiveSlot>
         durationInMinutes: newDuration,
       ));
     }
+  }
+} 
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// _MultiDayDragTarget — a narrow drag zone for a multi-day slot handle.
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _MultiDayDragTarget extends StatelessWidget {
+  const _MultiDayDragTarget({
+    required this.dragThreshold,
+    required this.dragMode,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+  });
+
+  final double dragThreshold;
+  final _DragMode dragMode;
+  final VoidCallback onDragStart;
+  final void Function(DragUpdateDetails) onDragUpdate;
+  final VoidCallback onDragEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.findAncestorStateOfType<InteractiveSlotState>()!;
+    return RawGestureDetector(
+      behavior: HitTestBehavior.opaque,
+      gestures: <Type, GestureRecognizerFactory>{
+        _SlotDragRecognizer:
+            GestureRecognizerFactoryWithHandlers<_SlotDragRecognizer>(
+          () => _SlotDragRecognizer(
+            dragThreshold: dragThreshold,
+            onStart: () {
+              state._dragMode = dragMode;
+              onDragStart();
+            },
+            onUpdate: onDragUpdate,
+            onEnd: onDragEnd,
+            onTap: () {},
+          ),
+          (instance) {},
+        ),
+      },
+    );
   }
 }
 
@@ -1178,20 +1583,44 @@ class _SlotBody extends StatelessWidget {
     required this.accent,
     required this.borderRadius,
     this.child,
+    this.hideTopBorder = false,
+    this.hideBottomBorder = false,
   });
 
   final Color accent;
   final double borderRadius;
   final Widget? child;
+  final bool hideTopBorder;
+  final bool hideBottomBorder;
 
   @override
   Widget build(BuildContext context) {
     final fillColor = accent.withAlpha(30);
+    final side = BorderSide(color: accent, width: 2);
+    final none = BorderSide.none;
+    // Conditionally suppress top / bottom edges for multi-day segments.
+    final effectiveBorder = hideTopBorder || hideBottomBorder
+        ? Border(
+            left: side,
+            right: side,
+            top: hideTopBorder ? none : side,
+            bottom: hideBottomBorder ? none : side,
+          )
+        : Border.all(color: accent, width: 2);
+    // Keep corners sharp where the adjacent border is hidden so the
+    // segment looks continuous with its neighbour.
+    final topRadius =
+        hideTopBorder ? Radius.zero : Radius.circular(borderRadius);
+    final bottomRadius =
+        hideBottomBorder ? Radius.zero : Radius.circular(borderRadius);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: fillColor,
-        border: Border.all(color: accent, width: 2),
-        borderRadius: BorderRadius.circular(borderRadius),
+        border: effectiveBorder,
+        borderRadius: BorderRadius.vertical(
+          top: topRadius,
+          bottom: bottomRadius,
+        ),
       ),
       child: child ?? const SizedBox.expand(),
     );

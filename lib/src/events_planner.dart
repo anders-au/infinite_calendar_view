@@ -932,12 +932,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
           ),
         ),
         ),
-        _buildSlotOverlay(cellGapWidthPadding, currentHourIndicatorColor),
+        _buildSlotOverlay(cellGapWidthPadding, plannerHeight, currentHourIndicatorColor),
       ],
     );
   }
 
-  Widget _buildSlotOverlay(double cellGapWidthPadding, Color currentHourIndicatorColor) {
+  Widget _buildSlotOverlay(double cellGapWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
     return AnimatedBuilder(
       animation: _slotOverlayListenable!,
       builder: (context, _) {
@@ -950,7 +950,83 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         final mapper = plannerTimeMapper;
         final paddedWidth = dayWidth - cellGapWidthPadding * 2;
         final columnPositions = columnsParam.getColumPositions(paddedWidth, slot.columnIndex);
+        final columnWidth = columnPositions[1] - columnPositions[0];
 
+        final isMultiDay = slot.totalDaysSpanned > 1;
+
+        if (isMultiDay) {
+          // ── Multi-day: slot spans from start day through end day ──
+          final startDay = slot.startDateTime.withoutTime;
+          final totalDays = slot.totalDaysSpanned;
+
+          int startDayDiff = startDay
+              .difference(initialDate.withoutTime)
+              .inDays;
+          if (widget.textDirection == TextDirection.rtl) {
+            startDayDiff = -startDayDiff;
+          }
+          final contentX = startDayDiff * dayWidth;
+          final viewportX = contentX - mainHorizontalController.offset;
+          final left = viewportX + cellGapWidthPadding + columnPositions[0];
+          // Width spans across all days in the selection, keeping the
+          // same column width on each day.
+          final slotWidth =
+              (totalDays - 1) * dayWidth + columnWidth;
+          // Fill the full time-grid area; internal segments handle
+          // per-day vertical positioning via the time mapper.
+          final top = dayParam.dayTopPadding;
+          final slotHeight =
+              plannerHeight - dayParam.dayTopPadding - dayParam.dayBottomPadding;
+
+          return Positioned(
+            top: top,
+            height: slotHeight,
+            left: left,
+            width: slotWidth,
+            child: dayParam.slotSelectionParam.slotSelectionBuilder?.call(
+                  slot,
+                  paddedWidth,
+                  dayParam,
+                  columnsParam,
+                  mapper.heightPerMinute,
+                  (TimedSlotSelection? updatedSlot) {
+                    _controller.slotSelectionNotifier.value = updatedSlot;
+                    dayParam.slotSelectionParam.onSlotSelectionChange
+                        ?.call(updatedSlot);
+                  },
+                ) ??
+                InteractiveSlot(
+                  slot: slot,
+                  dayWidth: dayWidth,
+                  dayParam: dayParam,
+                  columnsParam: columnsParam,
+                  heightPerMinute: mapper.heightPerMinute,
+                  plannerTimeMapper: mapper,
+                  verticalScrollController: mainVerticalController,
+                  horizontalScrollController: mainHorizontalController,
+                  viewportLeftInset: widget.textDirection == TextDirection.ltr
+                      ? widget.timesIndicatorsParam.timesIndicatorsWidth
+                      : 0,
+                  viewportRightInset: widget.textDirection == TextDirection.ltr
+                      ? 0
+                      : widget.timesIndicatorsParam.timesIndicatorsWidth,
+                  onDragStart: () {
+                    setState(() => _isSlotDragging = true);
+                  },
+                  onDragEnd: () {
+                    setState(() => _isSlotDragging = false);
+                    _reconcileAfterSlotDrag(slot.startDateTime);
+                  },
+                  onChanged: (TimedSlotSelection? updatedSlot) {
+                    _controller.slotSelectionNotifier.value = updatedSlot;
+                    dayParam.slotSelectionParam.onSlotSelectionChange
+                        ?.call(updatedSlot);
+                  },
+                ),
+          );
+        }
+
+        // ── Single-day: existing positioning logic ───────────────────
         // Horizontal: compute day offset from initialDate.
         int dayDiff = slot.startDateTime.withoutTime
             .difference(initialDate.withoutTime)
@@ -961,7 +1037,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         final contentX = dayDiff * dayWidth;
         final viewportX = contentX - mainHorizontalController.offset;
         final left = viewportX + cellGapWidthPadding + columnPositions[0];
-        final slotWidth = columnPositions[1] - columnPositions[0];
 
         // Vertical: time → pixel.
         // minteToY includes cellGapHeight for positioning.  When the slot
@@ -985,7 +1060,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
           top: top,
           height: slotHeight,
           left: left,
-          width: slotWidth,
+          width: columnWidth,
           child: dayParam.slotSelectionParam.slotSelectionBuilder?.call(
                 slot,
                 paddedWidth,
@@ -1702,6 +1777,18 @@ class TimedSlotSelection extends SlotSelection {
   @override
   bool get isAllDay => false;
 
+  /// The end date-time computed from [startDateTime] + [durationInMinutes].
+  DateTime get endDateTime =>
+      startDateTime.add(Duration(minutes: durationInMinutes));
+
+  /// Number of calendar days spanned by this slot, always ≥ 1.
+  /// For a slot starting at 6pm and ending at 7am the next day this
+  /// returns 2.
+  int get totalDaysSpanned {
+    final end = endDateTime;
+    return end.withoutTime.difference(startDateTime.withoutTime).inDays + 1;
+  }
+
   /// Converts this timed slot into an all-day slot.
   /// The all-day slot spans from the date of [startDateTime] through the
   /// date of the slot's end time (the next day if it crosses midnight).
@@ -2042,6 +2129,7 @@ class SlotSelectionParam {
     this.slotBorderRadius = 8.0,
     this.showDefaultSlotText = true,
     this.use24HourFormat = true,
+    this.maxMultiDayDuration,
   });
 
   /// enable interactive slot selection when tap on day slot
@@ -2134,6 +2222,16 @@ class SlotSelectionParam {
   /// When false, 12-hour format with AM/PM is used.
   /// Defaults to true (24-hour format).
   final bool use24HourFormat;
+
+  /// Maximum number of days a timed slot selection can span.
+  /// When set, the slot can extend across multiple days (e.g., 6pm Jan 1
+  /// through 7am Jan 2 = 2 days).  The drag and resize logic will cap
+  /// the slot's total duration to this many days' worth of minutes.
+  ///
+  /// When null (the default), multi-day slots are not enabled and the
+  /// slot is constrained to a single day (0–1440 minutes).  Set to a
+  /// value 2 or greater to allow the slot to cross midnight boundaries.
+  final int? maxMultiDayDuration;
 }
 
 

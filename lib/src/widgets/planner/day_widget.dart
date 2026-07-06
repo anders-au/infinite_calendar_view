@@ -106,7 +106,15 @@ class DayWidget extends StatelessWidget {
             {
               final initialMinute = slotSelection.initialStartDate.totalMinutes.toDouble();
               final initialY = mapper.minuteToY(initialMinute);
-              final currentMinute = mapper.yToMinute(initialY + details.localOffsetFromOrigin.dy);
+              // Use extended mapping when multi-day is enabled so the
+              // dragged start can cross midnight boundaries.
+              final maxDays =
+                  dayParam.slotSelectionParam.maxMultiDayDuration;
+              final currentMinute = maxDays != null
+                  ? mapper.yToMinuteExtended(initialY +
+                      details.localOffsetFromOrigin.dy)
+                  : mapper.yToMinute(
+                      initialY + details.localOffsetFromOrigin.dy);
               final minutesDelta = currentMinute - initialMinute;
               final dragInc = dayParam.slotSelectionParam.dragIncrementMinutes?.call(
                     slotSelection.columnIndex,

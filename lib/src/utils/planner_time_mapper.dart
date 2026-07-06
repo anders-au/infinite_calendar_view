@@ -69,4 +69,35 @@ class PlannerTimeMapper {
     final nextMinute = ((bandIndex + 1) * minutesPerHour).toDouble();
     return min(nextMinute, minutesPerDay.toDouble());
   }
+
+  // ── Extended-range helpers for multi-day slots ────────────────────
+
+  /// Converts an absolute minute value (which may exceed [minutesPerDay])
+  /// to a Y coordinate that spans multiple "virtual" days.
+  ///
+  /// The returned Y includes the full height of any preceding complete
+  /// days plus the intra-day Y of the remaining minutes.
+  ///
+  /// Example: `minuteToYExtended(1500)` for a slot starting at 1:00 AM
+  /// on day 2 returns `totalDayHeight() + minuteToY(60)`.
+  double minuteToYExtended(double minute) {
+    final fullDays = minute ~/ minutesPerDay;
+    final intraMinute = minute - (fullDays * minutesPerDay);
+    return (fullDays * totalDayHeight()) + minuteToY(intraMinute);
+  }
+
+  /// Inverse of [minuteToYExtended]: converts an extended Y coordinate
+  /// back to an absolute minute value (from day 0 midnight).
+  double yToMinuteExtended(double y) {
+    final dayHeight = totalDayHeight();
+    final fullDays = y ~/ dayHeight;
+    final intraY = y - (fullDays * dayHeight);
+    return (fullDays * minutesPerDay) + yToMinute(intraY);
+  }
+
+  /// Returns the number of complete 24-hour days in [totalMinutes].
+  static int minutesToDays(int totalMinutes) => totalMinutes ~/ minutesPerDay;
+
+  /// Returns the minute-of-day portion (0–1439) of [totalMinutes].
+  static int minuteOfDay(int totalMinutes) => totalMinutes % minutesPerDay;
 }
