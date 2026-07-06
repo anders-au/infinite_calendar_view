@@ -43,6 +43,7 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
         Theme.of(context).appBarTheme.backgroundColor;
 
     return Container(
+      constraints: BoxConstraints(minHeight: daysHeaderParam.daysHeaderHeight),
       decoration: BoxDecoration(
         color: daysHeaderParam.daysHeaderColor ?? defaultHeaderBackgroundColor,
       ),

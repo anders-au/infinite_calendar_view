@@ -39,7 +39,20 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
-    if (_pointer != null) return;
+    if (_pointer != null) {
+      // A new pointer arrived while the previous one is still tracked.
+      // This happens when the system steals the pointer (e.g., Android
+      // edge gesture) without delivering a cancel event.  Cancel the
+      // old drag immediately so the auto-scroll timer stops before it
+      // can interfere with the new gesture.
+      if (_dragStarted) {
+        onEnd();
+      }
+      stopTrackingPointer(_pointer!);
+      _pointer = null;
+      _startGlobal = null;
+      _dragStarted = false;
+    }
     startTrackingPointer(event.pointer);
     _pointer = event.pointer;
     _startGlobal = event.position;
@@ -74,6 +87,9 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
       }
       _finish(event.pointer);
     } else if (event is PointerCancelEvent) {
+      if (_dragStarted) {
+        onEnd();
+      }
       _finish(event.pointer);
     }
   }
@@ -83,11 +99,26 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void rejectGesture(int pointer) {
-    if (_pointer == pointer) _finish(pointer);
+    if (_pointer == pointer) {
+      if (_dragStarted) {
+        onEnd();
+      }
+      _finish(pointer);
+    }
   }
 
   @override
-  void didStopTrackingLastPointer(int pointer) {}
+  void didStopTrackingLastPointer(int pointer) {
+    // The framework stopped tracking all pointers for this recognizer.
+    // This can happen when the engine removes the pointer (e.g., Android
+    // edge gesture) without sending a PointerCancelEvent. Clean up.
+    if (_dragStarted) {
+      onEnd();
+    }
+    _pointer = null;
+    _startGlobal = null;
+    _dragStarted = false;
+  }
 
   void _finish(int pointer) {
     if (_pointer == pointer) {
@@ -180,10 +211,17 @@ class InteractiveSlot extends StatefulWidget {
   State<InteractiveSlot> createState() => InteractiveSlotState();
 }
 
-class InteractiveSlotState extends State<InteractiveSlot> {
+class InteractiveSlotState extends State<InteractiveSlot>
+    with WidgetsBindingObserver {
   // ── drag state ──────────────────────────────────────────────────────
   _DragMode? _dragMode;
   bool _dragCommitted = false;
+
+  // ── debug logging ───────────────────────────────────────────────────
+  static bool _debugDrag = true;
+  void _log(String msg) {
+    if (_debugDrag) debugPrint('[InteractiveSlot] $msg');
+  }
 
   // ── snapshots taken at drag start ───────────────────────────────────
   DateTime _snapStartDate = DateTime.now();
@@ -198,11 +236,34 @@ class InteractiveSlotState extends State<InteractiveSlot> {
   // ── auto-scroll state ───────────────────────────────────────────────
   Timer? _autoScrollTimer;
   Offset _lastGlobalPosition = Offset.zero;
+  DateTime _lastDragUpdateTime = DateTime.now();
+
+  /// If no drag-update event arrives within this window the auto-scroll
+  /// timer will stop itself.  This recovers from pointer-steal scenarios
+  /// (e.g., Android edge gesture) where no cancel/reject event is
+  /// delivered.
+  static const Duration _autoScrollStaleTimeout = Duration(milliseconds: 250);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stopAutoScroll();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _log('App lifecycle: $state — forcing drag reset');
+      _resetDrag();
+    }
   }
 
   @override
@@ -217,31 +278,41 @@ class InteractiveSlotState extends State<InteractiveSlot> {
       cursor: _effectiveCursor,
       onHover: _isDragging ? null : _onHover,
       onExit: _isDragging ? null : (_) => _updateCursor(null),
-      child: Builder(
-        builder: (innerContext) {
-          final gestures = canDrag
-              ? <Type, GestureRecognizerFactory>{
-                  _SlotDragRecognizer:
-                      GestureRecognizerFactoryWithHandlers<
-                          _SlotDragRecognizer>(
-                    () => _SlotDragRecognizer(
-                      dragThreshold: param.dragThreshold,
-                      onStart: _onDragStart,
-                      onUpdate: _onDragUpdate,
-                      onEnd: _resetDrag,
-                      onTap: () {
-                        param.onSlotSelectionTap?.call(widget.slot);
-                        widget.onChanged(null);
-                      },
+      child: Listener(
+        // Listener captures pointer events at the render-object level,
+        // BEFORE they reach the gesture arena.  This gives us a reliable
+        // way to detect PointerCancelEvent even when the gesture arena
+        // has already accepted our recognizer and the system (e.g.,
+        // Android edge gesture) steals the pointer silently.
+        behavior: HitTestBehavior.opaque,
+        onPointerCancel: _isDragging ? (_) => _onPointerCancelled() : null,
+        onPointerUp: _isDragging ? (_) {} : null,
+        onPointerMove: _isDragging ? (_) {} : null,
+        child: Builder(
+          builder: (innerContext) {
+            final gestures = canDrag
+                ? <Type, GestureRecognizerFactory>{
+                    _SlotDragRecognizer:
+                        GestureRecognizerFactoryWithHandlers<
+                            _SlotDragRecognizer>(
+                      () => _SlotDragRecognizer(
+                        dragThreshold: param.dragThreshold,
+                        onStart: _onDragStart,
+                        onUpdate: _onDragUpdate,
+                        onEnd: _resetDrag,
+                        onTap: () {
+                          param.onSlotSelectionTap?.call(widget.slot);
+                          widget.onChanged(null);
+                        },
+                      ),
+                      (instance) {},
                     ),
-                    (instance) {},
-                  ),
-                }
-              : <Type, GestureRecognizerFactory>{};
-          return RawGestureDetector(
-            behavior: HitTestBehavior.opaque,
-            gestures: gestures,
-            child: Container(
+                  }
+                : <Type, GestureRecognizerFactory>{};
+            return RawGestureDetector(
+              behavior: HitTestBehavior.opaque,
+              gestures: gestures,
+              child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(borderRadius),
                 boxShadow: _dragCommitted
@@ -283,9 +354,18 @@ class InteractiveSlotState extends State<InteractiveSlot> {
               ),
             ),
           );
-        },
+          },
+        ),
       ),
     );
+  }
+
+  /// Called by the [Listener] wrapper when a PointerCancelEvent arrives
+  /// at the render-object level.  This fires even when the gesture arena
+  /// is in an accepted state and would normally not forward the cancel.
+  void _onPointerCancelled() {
+    _log('Listener.onPointerCancel — forcing drag reset');
+    _resetDrag();
   }
 
   // ── default content ─────────────────────────────────────────────────
@@ -424,18 +504,18 @@ class InteractiveSlotState extends State<InteractiveSlot> {
             ),
           ),
         ),
-        const Spacer(),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            durationText.trim(),
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 10,
-              color: accent,
-            ),
-          ),
-        ),
+       // const Spacer(),
+        // FittedBox(
+        //   fit: BoxFit.scaleDown,
+        //   child: Text(
+        //     durationText.trim(),
+        //     textAlign: TextAlign.center,
+        //     style: theme.textTheme.bodySmall?.copyWith(
+        //       fontSize: 10,
+        //       color: accent,
+        //     ),
+        //   ),
+        // ),
         const Spacer(),
         FittedBox(
           fit: BoxFit.scaleDown,
@@ -522,26 +602,16 @@ class InteractiveSlotState extends State<InteractiveSlot> {
     _accumulatedDelta = Offset.zero;
 
     // Kill any running ballistic scroll activity (a leftover fling) so
-    // it doesn't fight our auto-scroll jumpTo calls.  We use animateTo
-    // with a non-zero duration to go through beginActivity, which
-    // disposes the old activity.  The target equals current offset so
-    // the driven animation is zero-displacement; when it completes,
-    // goBallistic(0) leaves the controller idle.
+    // it doesn't fight our auto-scroll jumpTo calls.  jumpTo calls
+    // goIdle() internally, which disposes any active activity including
+    // ballistic, and puts the position in IdleScrollActivity.
     final hc = widget.horizontalScrollController;
     if (hc?.hasClients == true) {
-      hc!.animateTo(
-        hc.offset,
-        duration: const Duration(milliseconds: 16),
-        curve: Curves.linear,
-      );
+      hc!.jumpTo(hc.offset);
     }
     final vc = widget.verticalScrollController;
     if (vc?.hasClients == true) {
-      vc!.animateTo(
-        vc.offset,
-        duration: const Duration(milliseconds: 16),
-        curve: Curves.linear,
-      );
+      vc!.jumpTo(vc.offset);
     }
 
     _stopAutoScroll();
@@ -556,6 +626,7 @@ class InteractiveSlotState extends State<InteractiveSlot> {
     // so it stays correct even as the slot is repositioned mid-drag.
     _accumulatedDelta += details.delta;
     _lastGlobalPosition = details.globalPosition;
+    _lastDragUpdateTime = DateTime.now();
 
     if (_dragMode == null) {
       // First movement — determine mode from the touch position.
@@ -605,7 +676,18 @@ class InteractiveSlotState extends State<InteractiveSlot> {
   }
 
   void _resetDrag() {
+    _log('_resetDrag called (mode=$_dragMode, dragging=$_isDragging, timer=${_autoScrollTimer != null})');
     _stopAutoScroll();
+    // Ensure scroll controllers are in a clean idle state so that
+    // normal scroll physics (fling, snap-to-boundary) resume correctly.
+    final hc = widget.horizontalScrollController;
+    if (hc?.hasClients == true) {
+      hc!.jumpTo(hc.offset);
+    }
+    final vc = widget.verticalScrollController;
+    if (vc?.hasClients == true) {
+      vc!.jumpTo(vc.offset);
+    }
     widget.onDragEnd?.call();
     _dragMode = null;
     _dragCommitted = false;
@@ -709,9 +791,27 @@ class InteractiveSlotState extends State<InteractiveSlot> {
 
   /// Called every ~16ms while the pointer is near a viewport edge.
   void _onAutoScrollTick(Timer timer) {
-    if (!mounted) {
+    if (!mounted || !_isDragging) {
       timer.cancel();
       _autoScrollTimer = null;
+      return;
+    }
+
+    // If no drag-update has arrived recently the pointer was likely
+    // stolen by the system (e.g., Android edge gesture) without a
+    // cancel / reject event.  Stop scrolling to prevent the timer
+    // from interfering with subsequent normal scroll gestures.
+    if (DateTime.now().difference(_lastDragUpdateTime) >
+        _autoScrollStaleTimeout) {
+      if (debugAutoScroll) {
+        debugPrint('[autoScroll] STOP timer — stale (no drag update ' +
+            'for >${_autoScrollStaleTimeout.inMilliseconds}ms)');
+      }
+      timer.cancel();
+      _autoScrollTimer = null;
+      _dragMode = null;
+      _dragCommitted = false;
+      _accumulatedDelta = Offset.zero;
       return;
     }
 
@@ -932,7 +1032,8 @@ class InteractiveSlotState extends State<InteractiveSlot> {
 
   void _applyDrag(Offset localOffset) {
     final mapper = widget.timeMapper;
-    final round = widget.dayParam.onSlotMinutesRound;
+    final param = widget.dayParam.slotSelectionParam;
+    final round = param.dragIncrementMinutes?.call(widget.slot.columnIndex, widget.slot.startDateTime) ?? widget.dayParam.onSlotMinutesRound;
     final alwaysBefore = widget.dayParam.onSlotRoundAlwaysBefore;
 
     int roundMins(double value, int step) {

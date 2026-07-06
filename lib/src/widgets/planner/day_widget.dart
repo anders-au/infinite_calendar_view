@@ -108,9 +108,14 @@ class DayWidget extends StatelessWidget {
               final initialY = mapper.minuteToY(initialMinute);
               final currentMinute = mapper.yToMinute(initialY + details.localOffsetFromOrigin.dy);
               final minutesDelta = currentMinute - initialMinute;
+              final dragInc = dayParam.slotSelectionParam.dragIncrementMinutes?.call(
+                    slotSelection.columnIndex,
+                    slotSelection.startDateTime,
+                  ) ??
+                  dayParam.onSlotMinutesRound;
               var minutesDeltaRound = dayParam.onSlotRoundAlwaysBefore
-                  ? dayParam.onSlotMinutesRound * (minutesDelta / dayParam.onSlotMinutesRound).floor()
-                  : dayParam.onSlotMinutesRound * (minutesDelta / dayParam.onSlotMinutesRound).round();
+                  ? dragInc * (minutesDelta / dragInc).floor()
+                  : dragInc * (minutesDelta / dragInc).round();
               final daysDelta = (details.localOffsetFromOrigin.dx / dayWidth).round();
               final newStart = slotSelection.initialStartDate.addCalendarDays(daysDelta).add(Duration(minutes: minutesDeltaRound));
               controller.slotSelectionNotifier.value = TimedSlotSelection(

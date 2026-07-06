@@ -1627,11 +1627,16 @@ class AllDaySlotSelection extends SlotSelection {
   /// Equals [startDate] for a single-day selection.
   final DateTime endDate;
 
+  /// Row index within the all-day bar for non-overlapping placement.
+  /// 0 = top row, 1 = next row, etc.
+  final int rowIndex;
+
   const AllDaySlotSelection({
     required super.columnIndex,
     required super.initialStartDate,
     required this.startDate,
     required this.endDate,
+    this.rowIndex = 0,
   });
 
   @override
@@ -1668,12 +1673,14 @@ class AllDaySlotSelection extends SlotSelection {
     DateTime? initialStartDate,
     DateTime? startDate,
     DateTime? endDate,
+    int? rowIndex,
   }) {
     return AllDaySlotSelection(
       columnIndex: columnIndex ?? this.columnIndex,
       initialStartDate: initialStartDate ?? this.initialStartDate,
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,
+      rowIndex: rowIndex ?? this.rowIndex,
     );
   }
 }
@@ -2019,6 +2026,7 @@ class SlotSelectionParam {
     this.clearWhenBackgroundTap = true,
     this.canDragSlotSelectionAfterShow = true,
     this.slotSelectionDefaultDurationInMinutes,
+    this.dragIncrementMinutes,
     this.slotSelectionContentBuilder,
     this.slotSelectionBuilder,
     this.onSlotSelectionChange,
@@ -2053,6 +2061,18 @@ class SlotSelectionParam {
 
   /// default duration in minutes of interactive slot selection
   final int Function(int columnIndex, DateTime date)? slotSelectionDefaultDurationInMinutes;
+
+  /// Rounding increment in minutes used during drag/resize operations on
+  /// the interactive slot.  When set, this overrides [DayParam.onSlotMinutesRound]
+  /// for drag/resize gestures, letting the slot snap to coarser or finer
+  /// intervals while dragging than the tap-rounding uses.
+  ///
+  /// Accepts the same signature as [slotSelectionDefaultDurationInMinutes]
+  /// so the increment can vary by column or date.
+  ///
+  /// When null (the default), [DayParam.onSlotMinutesRound] is used for
+  /// both tap-rounding and drag-rounding.
+  final int Function(int columnIndex, DateTime date)? dragIncrementMinutes;
 
   /// interactive slot selection content in default InteractiveSlot
   final Widget Function(TimedSlotSelection slot)? slotSelectionContentBuilder;
