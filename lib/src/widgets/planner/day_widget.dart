@@ -102,8 +102,9 @@ class DayWidget extends StatelessWidget {
         onLongPressMoveUpdate: (details) {
           if (dayParam.slotSelectionParam.enableLongPressSlotSelection) {
             var slotSelection = controller.slotSelectionNotifier.value;
-            if (slotSelection != null) {
-              final initialMinute = slotSelection.initialStartDateTime.totalMinutes.toDouble();
+            if (slotSelection is! TimedSlotSelection) return;
+            {
+              final initialMinute = slotSelection.initialStartDate.totalMinutes.toDouble();
               final initialY = mapper.minuteToY(initialMinute);
               final currentMinute = mapper.yToMinute(initialY + details.localOffsetFromOrigin.dy);
               final minutesDelta = currentMinute - initialMinute;
@@ -111,12 +112,12 @@ class DayWidget extends StatelessWidget {
                   ? dayParam.onSlotMinutesRound * (minutesDelta / dayParam.onSlotMinutesRound).floor()
                   : dayParam.onSlotMinutesRound * (minutesDelta / dayParam.onSlotMinutesRound).round();
               final daysDelta = (details.localOffsetFromOrigin.dx / dayWidth).round();
-              final newStart = slotSelection.initialStartDateTime.addCalendarDays(daysDelta).add(Duration(minutes: minutesDeltaRound));
-              controller.slotSelectionNotifier.value = SlotSelection(
-                slotSelection.columnIndex,
-                slotSelection.initialStartDateTime,
-                newStart,
-                slotSelection.durationInMinutes,
+              final newStart = slotSelection.initialStartDate.addCalendarDays(daysDelta).add(Duration(minutes: minutesDeltaRound));
+              controller.slotSelectionNotifier.value = TimedSlotSelection(
+                columnIndex: slotSelection.columnIndex,
+                initialStartDate: slotSelection.initialStartDate,
+                startDateTime: newStart,
+                durationInMinutes: slotSelection.durationInMinutes,
               );
 
               // ── auto-scroll during long-press drag ──────────────────
@@ -269,8 +270,6 @@ class DayWidget extends StatelessWidget {
     if (controller.slotSelectionNotifier.value != null && slotSelectionParam.clearWhenBackgroundTap) {
       controller.slotSelectionNotifier.value = null;
       slotSelectionParam.onSlotSelectionChange?.call(null);
-      // Also clear any all-day slot selection.
-      controller.allDaySlotSelectionNotifier.value = null;
     }
     // init slot selection
     else if ((tap && slotSelectionParam.enableTapSlotSelection) ||
@@ -278,10 +277,14 @@ class DayWidget extends StatelessWidget {
         (longPress && slotSelectionParam.enableLongPressSlotSelection)) {
       int duration =
           slotSelectionParam.slotSelectionDefaultDurationInMinutes?.call(column, roundDate) ?? DayParam.defaultSlotSelectionDurationInMinutes;
-      controller.slotSelectionNotifier.value = SlotSelection(column, roundDate, roundDate, duration);
-      slotSelectionParam.onSlotSelectionChange?.call(controller.slotSelectionNotifier.value);
-      // Clear any all-day slot selection when creating a timed slot.
-      controller.allDaySlotSelectionNotifier.value = null;
+      final newSlot = TimedSlotSelection(
+        columnIndex: column,
+        initialStartDate: roundDate,
+        startDateTime: roundDate,
+        durationInMinutes: duration,
+      );
+      controller.slotSelectionNotifier.value = newSlot;
+      slotSelectionParam.onSlotSelectionChange?.call(newSlot);
     }
   }
 

@@ -101,7 +101,7 @@ class _PlannerTreeDaysSlotState extends State<PlannerTreeDaysSlot> {
     );
   }
 
-  void _openBottomSheet(SlotSelection slot) {
+  void _openBottomSheet(TimedSlotSelection slot) {
     final scaffoldState = Scaffold.of(context);
     _bottomSheetController = scaffoldState.showBottomSheet(
       enableDrag: true,
@@ -178,7 +178,7 @@ class _PlannerTreeDaysSlotState extends State<PlannerTreeDaysSlot> {
     });
   }
 
-  String getSlotText(SlotSelection slot) {
+  String getSlotText(TimedSlotSelection slot) {
     var day = intl.DateFormat("E d").format(slot.startDateTime);
     var startHour = intl.DateFormat('Hm').format(slot.startDateTime);
     var endHour = intl.DateFormat('Hm').format(

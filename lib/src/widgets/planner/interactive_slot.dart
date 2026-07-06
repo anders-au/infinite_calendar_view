@@ -136,13 +136,13 @@ class InteractiveSlot extends StatefulWidget {
     this.onDragEnd,
   });
 
-  final SlotSelection slot;
+  final TimedSlotSelection slot;
   final double dayWidth;
   final DayParam dayParam;
   final ColumnsParam columnsParam;
   final double heightPerMinute;
   final PlannerTimeMapper? plannerTimeMapper;
-  final void Function(SlotSelection? updatedSlot) onChanged;
+  final void Function(TimedSlotSelection? updatedSlot) onChanged;
 
   /// When set, the planner's vertical scroll controller — used for
   /// edge-triggered auto-scrolling while dragging or resizing the slot.
@@ -985,11 +985,11 @@ class InteractiveSlotState extends State<InteractiveSlot> {
     if (clampedMinute != effectiveMinutes) {
       newStart = targetMidnight.add(Duration(minutes: clampedMinute));
     }
-    widget.onChanged(SlotSelection(
-      slot.columnIndex,
-      slot.initialStartDateTime,
-      newStart,
-      _snapDurationMin,
+    widget.onChanged(TimedSlotSelection(
+      columnIndex: slot.columnIndex,
+      initialStartDate: slot.initialStartDate,
+      startDateTime: newStart,
+      durationInMinutes: _snapDurationMin,
     ));
   }
 
@@ -1021,11 +1021,11 @@ class InteractiveSlotState extends State<InteractiveSlot> {
       newDuration = PlannerTimeMapper.minutesPerDay;
     }
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
-      widget.onChanged(SlotSelection(
-        slot.columnIndex,
-        slot.initialStartDateTime,
-        newStart,
-        newDuration,
+      widget.onChanged(TimedSlotSelection(
+        columnIndex: slot.columnIndex,
+        initialStartDate: slot.initialStartDate,
+        startDateTime: newStart,
+        durationInMinutes: newDuration,
       ));
     }
   }
@@ -1056,11 +1056,11 @@ class InteractiveSlotState extends State<InteractiveSlot> {
         PlannerTimeMapper.minutesPerDay - _snapStartDate.totalMinutes;
     if (newDuration > maxDuration) newDuration = maxDuration;
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
-      widget.onChanged(SlotSelection(
-        slot.columnIndex,
-        slot.initialStartDateTime,
-        _snapStartDate,
-        newDuration,
+      widget.onChanged(TimedSlotSelection(
+        columnIndex: slot.columnIndex,
+        initialStartDate: slot.initialStartDate,
+        startDateTime: _snapStartDate,
+        durationInMinutes: newDuration,
       ));
     }
   }

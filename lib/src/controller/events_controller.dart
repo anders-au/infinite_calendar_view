@@ -22,11 +22,20 @@ class EventsController extends ChangeNotifier {
   // call when focused day change
   void Function(DateTime day)? onFocusedDayChange;
 
-  // current interactive slot selection
+  /// The current interactive slot selection.
+  ///
+  /// Holds either a [TimedSlotSelection] (created by tapping a time slot
+  /// in the day grid) or an [AllDaySlotSelection] (created by tapping the
+  /// all-day bar).  A single notifier ensures only one selection can exist
+  /// at a time — creating one type automatically clears the other.
+  ///
+  /// Check the runtime type to distinguish:
+  /// ```dart
+  /// final s = controller.slotSelectionNotifier.value;
+  /// if (s is TimedSlotSelection) { ... }
+  /// if (s is AllDaySlotSelection) { ... }
+  /// ```
   final slotSelectionNotifier = ValueNotifier<SlotSelection?>(null);
-
-  // current interactive all-day slot selection
-  final allDaySlotSelectionNotifier = ValueNotifier<AllDaySlotSelection?>(null);
 
   /// modify event data and update UI
   void updateCalendarData(UpdateCalendarDataCallback fn) {

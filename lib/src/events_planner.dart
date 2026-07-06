@@ -560,6 +560,45 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
   }
 
+  /// Snaps the horizontal scroll to the nearest valid boundary (day or
+  /// bracket) that still contains [referenceDay].  Unlike
+  /// [_snapToNearestDayHorizontal] which snaps from the current scroll
+  /// offset, this snaps relative to a reference day so the slot stays
+  /// in view.
+  void _snapToBoundary(DateTime referenceDay, ) {
+    if (!mainHorizontalController.hasClients || dayWidth == 0) return;
+
+    final useWeekSnap = widget.snapToDaysShowed && widget.snapToWeekStart && widget.daysShowed == 7;
+
+    double target;
+    if (useWeekSnap) {
+      target = _snapToNearestWeekOffset(mainHorizontalController.offset);
+    } else if (widget.snapToDaysShowed) {
+      // Snap to the bracket that contains referenceDay.
+      target = _getBracketStartDayForTarget(referenceDay)
+              .difference(initialDate.withoutTime)
+              .inDays *
+          dayWidth;
+    } else {
+      // Snap to referenceDay itself as the first visible column.
+      target = referenceDay.withoutTime
+              .difference(initialDate.withoutTime)
+              .inDays *
+          dayWidth;
+    }
+
+    if ((target - mainHorizontalController.offset).abs() > 0.5) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mainHorizontalController.hasClients) return;
+        mainHorizontalController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeIn,
+        );
+      });
+    }
+  }
+
   /// Recalculates the current day index from the horizontal scroll offset
   /// and updates [currentIndex], [focusedDay], and related notifiers.
   /// Does NOT perform any scroll-snapping animation.
@@ -614,6 +653,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     // ── skip the scroll if the slot's day is already visible ──────────
     if (_isDayAlreadyVisible(slotDay)) {
       _syncCurrentDayFromScroll();
+      _snapToNearestDayHorizontal();
       return;
     }
 
@@ -643,6 +683,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
     // ── update day tracking (now reading the final scroll position) ────
     _syncCurrentDayFromScroll();
+    _snapToBoundary(targetDay);
     final adjustedDay = getDayFromIndex(dayDiff);
     widget.onAutomaticAdjustHorizontalScroll?.call(adjustedDay);
   }
@@ -902,6 +943,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       builder: (context, _) {
         final slot = _controller.slotSelectionNotifier.value;
         if (slot == null) return const SizedBox.shrink();
+        if (slot is! TimedSlotSelection) return const SizedBox.shrink();
 
         final dayParam = widget.dayParam;
         final columnsParam = widget.columnsParam;
@@ -950,7 +992,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 dayParam,
                 columnsParam,
                 mapper.heightPerMinute,
-                (SlotSelection? updatedSlot) {
+                (TimedSlotSelection? updatedSlot) {
                   _controller.slotSelectionNotifier.value = updatedSlot;
                   dayParam.slotSelectionParam.onSlotSelectionChange
                       ?.call(updatedSlot);
@@ -977,9 +1019,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                 onDragEnd: () {
                   setState(() => _isSlotDragging = false);
                   _reconcileAfterSlotDrag(slot.startDateTime);
-                  _snapToNearestDayHorizontal();
                 },
-                onChanged: (SlotSelection? updatedSlot) {
+                onChanged: (TimedSlotSelection? updatedSlot) {
                   _controller.slotSelectionNotifier.value = updatedSlot;
                   dayParam.slotSelectionParam.onSlotSelectionChange
                       ?.call(updatedSlot);
@@ -1009,12 +1050,21 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       columnsParam: widget.columnsParam,
       cellGapWidthPadding: cellGapWidthPadding,
       dayHorizontalController: headersHorizontalController,
+      mainContentHorizontalController: mainHorizontalController,
       maxPreviousDays: widget.maxPreviousDays,
       maxNextDays: widget.maxNextDays,
       initialDate: initialDate,
       dayWidth: dayWidth,
       todayColor: todayColor,
       timesIndicatorsWidth: widget.timesIndicatorsParam.timesIndicatorsWidth,
+      onSlotDragStart: () {
+        setState(() => _isSlotDragging = true);
+      },
+      onSlotDragEnd: () {
+        setState(() => _isSlotDragging = false);
+        _syncCurrentDayFromScroll();
+        _snapToNearestDayHorizontal();
+      },
     );
   }
 
@@ -1473,6 +1523,9 @@ class AllDaySlotSelectionParam {
     this.accentColor,
     this.slotBorderRadius = 8.0,
     this.showDefaultSlotText = true,
+    this.enableDrag = true,
+    this.enableResize = true,
+    this.dragThreshold = 6.0,
   });
 
   /// Enable all-day slot selection when tapping a day cell in the all-day bar.
@@ -1510,19 +1563,63 @@ class AllDaySlotSelectionParam {
   /// Whether to show a default date label inside the pill.
   /// Defaults to true.
   final bool showDefaultSlotText;
+
+  /// Enable drag-to-reposition on the all-day slot pill.
+  /// When true, the user can drag the pill left/right to change
+  /// [AllDaySlotSelection.startDate] and [AllDaySlotSelection.endDate]
+  /// by whole-day increments.
+  /// Defaults to true.
+  final bool enableDrag;
+
+  /// Enable left/right edge resize handles on the all-day slot pill.
+  /// When true, the user can drag the left edge to adjust [startDate]
+  /// and the right edge to adjust [endDate].
+  /// Defaults to true.
+  final bool enableResize;
+
+  /// Minimum pointer movement in logical pixels before an all-day
+  /// drag action is committed. Prevents accidental micro-drags.
+  /// Defaults to 6.0.
+  final double dragThreshold;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SlotSelection — sealed base class for timed and all-day slot selections.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A transient UI placeholder for a slot the user is interactively creating
+/// or modifying.  Always stored in [EventsController.slotSelectionNotifier]
+/// which holds exactly one selection at a time.
+///
+/// Use `is` checks to branch on the concrete type:
+/// ```dart
+/// final s = controller.slotSelectionNotifier.value;
+/// if (s is TimedSlotSelection) { /* time-grid slot */ }
+/// if (s is AllDaySlotSelection)  { /* all-day-bar slot */ }
+/// ```
+sealed class SlotSelection {
+  /// The column index within the day (0 if single-column).
+  final int columnIndex;
+
+  /// The date (and optionally time) where the gesture started.
+  /// For [TimedSlotSelection] the time portion is meaningful;
+  /// for [AllDaySlotSelection] only the date matters.
+  final DateTime initialStartDate;
+
+  const SlotSelection({
+    required this.columnIndex,
+    required this.initialStartDate,
+  });
+
+  /// Whether this is an all-day selection (no time component).
+  bool get isAllDay;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AllDaySlotSelection — the data model for an all-day slot selection.
 // ═══════════════════════════════════════════════════════════════════════════
 
-class AllDaySlotSelection {
-  /// The column index within the day (0 if single-column).
-  final int columnIndex;
-
-  /// The date where the gesture started (for potential multi-day drag).
-  final DateTime initialStartDate;
-
+class AllDaySlotSelection extends SlotSelection {
   /// The first day of the selection (time portion is ignored).
   final DateTime startDate;
 
@@ -1530,16 +1627,106 @@ class AllDaySlotSelection {
   /// Equals [startDate] for a single-day selection.
   final DateTime endDate;
 
-  const AllDaySlotSelection(
-    this.columnIndex,
-    this.initialStartDate,
-    this.startDate,
-    this.endDate,
-  );
+  const AllDaySlotSelection({
+    required super.columnIndex,
+    required super.initialStartDate,
+    required this.startDate,
+    required this.endDate,
+  });
+
+  @override
+  bool get isAllDay => true;
 
   /// Number of days spanned by this selection (always ≥ 1).
   int get dayCount =>
       endDate.withoutTime.difference(startDate.withoutTime).inDays + 1;
+
+  /// Converts this all-day selection into a timed slot selection on
+  /// [startDate] with the given [defaultStart] time and [defaultDuration].
+  TimedSlotSelection toTimed({
+    TimeOfDay defaultStart = const TimeOfDay(hour: 9, minute: 0),
+    int defaultDuration = 60,
+  }) {
+    final startDt = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+      defaultStart.hour,
+      defaultStart.minute,
+    );
+    return TimedSlotSelection(
+      columnIndex: columnIndex,
+      initialStartDate: initialStartDate,
+      startDateTime: startDt,
+      durationInMinutes: defaultDuration,
+    );
+  }
+
+  /// Creates a copy with the given fields replaced.
+  AllDaySlotSelection copyWith({
+    int? columnIndex,
+    DateTime? initialStartDate,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) {
+    return AllDaySlotSelection(
+      columnIndex: columnIndex ?? this.columnIndex,
+      initialStartDate: initialStartDate ?? this.initialStartDate,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+    );
+  }
+}
+
+class TimedSlotSelection extends SlotSelection {
+  /// Current interactive slot start date (includes time).
+  final DateTime startDateTime;
+
+  /// Current interactive slot duration in minutes.
+  final int durationInMinutes;
+
+  TimedSlotSelection({
+    required super.columnIndex,
+    required super.initialStartDate,
+    required this.startDateTime,
+    required this.durationInMinutes,
+  });
+
+  @override
+  bool get isAllDay => false;
+
+  /// Converts this timed slot into an all-day slot.
+  /// The all-day slot spans from the date of [startDateTime] through the
+  /// date of the slot's end time (the next day if it crosses midnight).
+  AllDaySlotSelection toAllDay() {
+    final startDay = startDateTime.withoutTime;
+    final endDt = startDateTime.add(Duration(minutes: durationInMinutes));
+    final endDay = endDt.withoutTime;
+    // If the slot ends at exactly midnight of the next day, endDay may
+    // already equal startDay (because of withoutTime).  In that case the
+    // slot occupies one full day.
+    return AllDaySlotSelection(
+      columnIndex: columnIndex,
+      initialStartDate: initialStartDate,
+      startDate: startDay,
+      endDate: endDay.isAfter(startDay) ? endDay : startDay,
+    );
+  }
+
+  /// Creates a copy with the given fields replaced.
+  TimedSlotSelection copyWith({
+    int? columnIndex,
+    DateTime? initialStartDate,
+    DateTime? startDateTime,
+    int? durationInMinutes,
+  }) {
+    return TimedSlotSelection(
+      columnIndex: columnIndex ?? this.columnIndex,
+      initialStartDate: initialStartDate ?? this.initialStartDate,
+      startDateTime: startDateTime ?? this.startDateTime,
+      durationInMinutes: durationInMinutes ?? this.durationInMinutes,
+    );
+  }
 }
 
 class PinchToZoomParameters {
@@ -1868,26 +2055,26 @@ class SlotSelectionParam {
   final int Function(int columnIndex, DateTime date)? slotSelectionDefaultDurationInMinutes;
 
   /// interactive slot selection content in default InteractiveSlot
-  final Widget Function(SlotSelection slot)? slotSelectionContentBuilder;
+  final Widget Function(TimedSlotSelection slot)? slotSelectionContentBuilder;
 
   /// interactive slot selection builder
   final Widget Function(
-    SlotSelection slot,
+    TimedSlotSelection slot,
     double dayWidth,
     DayParam dayParam,
     ColumnsParam columnsParam,
     double heightPerMinute,
-    void Function(SlotSelection? updatedSlot) onChanged,
+    void Function(TimedSlotSelection? updatedSlot) onChanged,
   )? slotSelectionBuilder;
 
   /// event when tap on interactive slot
-  final void Function(SlotSelection? slot)? onSlotSelectionChange;
+  final void Function(TimedSlotSelection? slot)? onSlotSelectionChange;
 
   /// event when tap on interactive slot
-  final void Function(SlotSelection slot)? onSlotSelectionTap;
+  final void Function(TimedSlotSelection slot)? onSlotSelectionTap;
 
   /// event when long press on interactive slot
-  final void Function(SlotSelection slot)? onSlotSelectionLongPress;
+  final void Function(TimedSlotSelection slot)? onSlotSelectionLongPress;
 
   /// enable interactive slot selection top and bottom handle for resize
   final bool enableSlotSelectionResize;
@@ -1929,21 +2116,6 @@ class SlotSelectionParam {
   final bool use24HourFormat;
 }
 
-class SlotSelection {
-  // current column
-  final int columnIndex;
-
-  // initial interactive slot start date when slot have been created
-  final DateTime initialStartDateTime;
-
-  // current interactive slot start date
-  final DateTime startDateTime;
-
-  // current interactive slot duration
-  final int durationInMinutes;
-
-  SlotSelection(this.columnIndex, this.initialStartDateTime, this.startDateTime, this.durationInMinutes);
-}
 
 // ──────────────────────────────────────────────────────────────────────────
 // DaySnappingScrollPhysics — snaps flings to the nearest day-column
@@ -2006,6 +2178,3 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
     );
   }
 }
-
-// See AllDaySlotSelection above, placed between AllDaySlotSelectionParam
-// and PinchToZoomParameters for logical grouping.
