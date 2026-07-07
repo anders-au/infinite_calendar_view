@@ -527,7 +527,6 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
                 onEnd: _resetDrag,
                 onTap: () {
                   param.onSlotSelectionTap?.call(widget.slot);
-                  widget.onChanged(null);
                 },
               ),
               (instance) {},

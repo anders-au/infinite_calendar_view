@@ -157,12 +157,14 @@ class _SlotDragSession {
     required this.snapStartDate,
     required this.snapEndDate,
     required this.snapDurationMin,
+    required this.snapTotalDays,
   });
 
   final _DragMode mode;
   final DateTime snapStartDate;
   final DateTime snapEndDate;
   final int snapDurationMin;
+  final int snapTotalDays;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -307,7 +309,11 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     final borderRadius = param.slotBorderRadius;
     final canDrag = param.canDragSlotSelectionAfterShow;
     final slot = widget.slot;
-    final isMultiDay = slot.totalDaysSpanned > 1;
+    // Freeze the multi-day layout during a drag so the widget tree
+    // doesn't switch between single-day and multi-day rendering.
+    final isMultiDay = _session != null
+        ? _session!.snapTotalDays > 1
+        : slot.totalDaysSpanned > 1;
 
     // ── Multi-day: build content without a slot-wide drag recognizer ─
     // Only the handle zones get their own drag targets; the rest of the
@@ -345,7 +351,6 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
                         onEnd: _resetDrag,
                         onTap: () {
                           param.onSlotSelectionTap?.call(slot);
-                          widget.onChanged(null);
                         },
                       ),
                       (instance) {},
@@ -403,21 +408,68 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     final hasResize = param.enableSlotSelectionResize;
     final zoneSize = param.handleZoneSize;
     final handlesVisible = hasResize && param.showHandles;
-    final totalDays = slot.totalDaysSpanned;
+    // ── Compute positions continuously during drag ──────────────────
+    // Using the session snap + accumulated delta instead of widget.slot
+    // avoids flicker from parent rebuilds delivering intermediate values.
+    // Column count (totalDays) is only overridden for resizeBottom where
+    // the end can cross day boundaries; for resizeTop/shift the parent's
+    // slot.totalDaysSpanned is authoritative.
+    final double dragEndMinute;
+    final double dragStartMinuteOfDay;
+    final int totalDays;
+    if (_session != null) {
+      final snapStartMin = _session!.snapStartDate.totalMinutes;
+      final snapEndAbs = snapStartMin + _session!.snapDurationMin;
+      if (_session!.mode == _DragMode.resizeBottom) {
+        dragEndMinute = (snapEndAbs + _accumulatedDelta.dy / mapper.heightPerMinute).toDouble();
+        dragStartMinuteOfDay = snapStartMin.toDouble();
+        final effectiveEnd = (dragEndMinute > 0 && dragEndMinute % PlannerTimeMapper.minutesPerDay == 0)
+            ? dragEndMinute - 1
+            : dragEndMinute;
+        totalDays = effectiveEnd <= 0 ? 1 : ((effectiveEnd - 1) ~/ PlannerTimeMapper.minutesPerDay).toInt() + 1;
+      } else if (_session!.mode == _DragMode.resizeTop) {
+        dragEndMinute = snapEndAbs.toDouble();
+        final rawStart = (snapStartMin + _accumulatedDelta.dy / mapper.heightPerMinute).toDouble();
+        dragStartMinuteOfDay = rawStart.clamp(0.0, PlannerTimeMapper.minutesPerDay.toDouble());
+        totalDays = slot.totalDaysSpanned;
+      } else {
+        // shift: both start and end move together
+        final shift = _accumulatedDelta.dy / mapper.heightPerMinute;
+        dragEndMinute = (snapEndAbs + shift).toDouble();
+        dragStartMinuteOfDay = (snapStartMin + shift).toDouble();
+        totalDays = slot.totalDaysSpanned;
+      }
+    } else {
+      dragEndMinute = (slot.startDateTime.totalMinutes + slot.durationInMinutes).toDouble();
+      dragStartMinuteOfDay = slot.startDateTime.totalMinutes.toDouble();
+      totalDays = slot.totalDaysSpanned;
+    }
+    // endMinuteOfDay: midnight → 1440 (bottom), not 0 (top).
+    final rawEnd = dragEndMinute % PlannerTimeMapper.minutesPerDay;
+    final endMinuteOfDay = (rawEnd == 0 && dragEndMinute > 0)
+        ? PlannerTimeMapper.minutesPerDay.toDouble()
+        : rawEnd;
+
+    if (debugDragPosition) {
+      debugPrint('[dragPos] _buildMultiDayBody '
+          'mode=${_session?.mode} '
+          'dragEndMinute=${dragEndMinute.toStringAsFixed(1)} '
+          'totalDays=$totalDays '
+          'endMinuteOfDay=${endMinuteOfDay.toStringAsFixed(1)} '
+          'startMinuteOfDay=${dragStartMinuteOfDay.toStringAsFixed(1)} '
+          'slot.durationInMinutes=${slot.durationInMinutes} '
+          'slot.totalDaysSpanned=${slot.totalDaysSpanned} '
+          'snapTotalDays=${_session?.snapTotalDays} '
+          'accumDy=${_accumulatedDelta.dy.toStringAsFixed(1)}');
+    }
+
     final dayHeight = mapper.totalDayHeight();
     final dayWidth = widget.dayWidth;
     final cellGapPad = widget.cellGapWidthPadding;
     final paddedWidth = dayWidth - cellGapPad * 2;
     final colPositions = widget.columnsParam.getColumPositions(paddedWidth, slot.columnIndex);
     final colWidth = colPositions[1] - colPositions[0];
-    final startMinuteOfDay = slot.startDateTime.totalMinutes.toDouble();
-    final totalEndMinute = (slot.startDateTime.totalMinutes + slot.durationInMinutes).toDouble();
-    var endMinuteOfDay = totalEndMinute % PlannerTimeMapper.minutesPerDay;
-    // Midnight end: treat as end-of-day so it renders at the bottom
-    // of the last day rather than the top of the following day.
-    if (endMinuteOfDay == 0 && totalEndMinute > 0) {
-      endMinuteOfDay = PlannerTimeMapper.minutesPerDay.toDouble();
-    }
+    final startMinuteOfDay = dragStartMinuteOfDay;
 
     final startY = mapper.minuteToY(startMinuteOfDay);
     var endY = mapper.minuteToY(endMinuteOfDay);
@@ -845,12 +897,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
       final pointerDay = (localX / dayWidth).floor().clamp(0, slot.totalDaysSpanned - 1);
       final startMinuteOfDay = slot.startDateTime.totalMinutes.toDouble();
       final startY = mapper.minuteToY(startMinuteOfDay);
-      final totalEndMinute = (slot.startDateTime.totalMinutes + slot.durationInMinutes).toDouble();
-      var endMinuteOfDay = totalEndMinute % PlannerTimeMapper.minutesPerDay;
-      // Midnight end: treat as end-of-day so the handle zone is at the bottom.
-      if (endMinuteOfDay == 0 && totalEndMinute > 0) {
-        endMinuteOfDay = PlannerTimeMapper.minutesPerDay.toDouble();
-      }
+      final endMinuteOfDay = slot.endMinuteOfDay.toDouble();
       final endY = mapper.minuteToY(endMinuteOfDay);
 
       // Top handle: pointer is on the first day and near the top of the first segment.
@@ -976,6 +1023,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         snapStartDate: slot.startDateTime,
         snapEndDate: slot.startDateTime.add(Duration(minutes: slot.durationInMinutes)),
         snapDurationMin: slot.durationInMinutes,
+        snapTotalDays: slot.totalDaysSpanned,
       );
 
       setState(() {
@@ -1031,6 +1079,9 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
 
   /// Set to `true` to print auto-scroll diagnostics to the console.
   static bool debugAutoScroll = false;
+
+  /// Set to `true` to log drag positioning details (end minute, columns, Y).
+  static bool debugDragPosition = true;
 
   /// Inspects the last-known global pointer position and starts, updates,
   /// or stops edge-triggered auto-scrolling.
@@ -1391,26 +1442,34 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         return;
       }
     }
-    // ── Universal midnight guard: if the snap was single-day, prevent the
-    // shift from pushing the slot's end past midnight.  Midnight itself
-    // (end == 24:00) is a valid boundary and preserves interval alignment.
-    final snapEndMinute = _session!.snapStartDate.totalMinutes + _session!.snapDurationMin;
-    final snapWasSingleDay = snapEndMinute <= PlannerTimeMapper.minutesPerDay;
-    if (snapWasSingleDay) {
-      final endMinute = newStart.totalMinutes + _session!.snapDurationMin;
-      if (endMinute > PlannerTimeMapper.minutesPerDay) {
-        // End would cross past midnight — clamp start so end lands at midnight.
-        final safeStartMinute = PlannerTimeMapper.minutesPerDay - _session!.snapDurationMin;
-        final safeStart = targetMidnight.add(Duration(minutes: safeStartMinute));
-        final resultSlot = TimedSlotSelection(
-          columnIndex: slot.columnIndex,
-          initialStartDate: slot.initialStartDate,
-          startDateTime: safeStart,
-          durationInMinutes: _session!.snapDurationMin,
-        );
-        widget.onChanged(resultSlot);
-        return;
+    // ── Universal midnight guard ────────────────────────────────────
+    // Never let the end cross past midnight when shifting.
+    final endMinute = newStart.totalMinutes + _session!.snapDurationMin;
+    if (endMinute > PlannerTimeMapper.minutesPerDay) {
+      // End would cross past midnight — clamp start so end lands at midnight.
+      final safeStartMinute = PlannerTimeMapper.minutesPerDay - _session!.snapDurationMin;
+      final safeStart = targetMidnight.add(Duration(minutes: safeStartMinute));
+      if (debugDragPosition) {
+        debugPrint('[dragPos] shift CLAMPED '
+            'endMinute=$endMinute '
+            'safeStartMinute=$safeStartMinute '
+            'targetMidnight=${targetMidnight.toIso8601String()}');
       }
+      final resultSlot = TimedSlotSelection(
+        columnIndex: slot.columnIndex,
+        initialStartDate: slot.initialStartDate,
+        startDateTime: safeStart,
+        durationInMinutes: _session!.snapDurationMin,
+      );
+      widget.onChanged(resultSlot);
+      return;
+    }
+    if (debugDragPosition) {
+      debugPrint('[dragPos] shift OK '
+          'endMinute=$endMinute '
+          'startMinute=${newStart.totalMinutes} '
+          'daysDelta=$daysDelta '
+          'snapDurationMin=${_session!.snapDurationMin}');
     }
     final resultSlot = TimedSlotSelection(
       columnIndex: slot.columnIndex,
@@ -1455,16 +1514,19 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         newDuration = PlannerTimeMapper.minutesPerDay;
       }
     }
-    // ── Universal midnight guard: if the snap was single-day, prevent the
-    // resize from pushing the slot's end past midnight.  Midnight itself
-    // (end == 24:00) is a valid boundary and preserves interval alignment.
-    final snapEndMinute = _session!.snapStartDate.totalMinutes + _session!.snapDurationMin;
-    final snapWasSingleDay = snapEndMinute <= PlannerTimeMapper.minutesPerDay;
-    if (snapWasSingleDay) {
-      final endMinute = newStart.totalMinutes + newDuration;
-      if (endMinute > PlannerTimeMapper.minutesPerDay) {
-        newDuration = PlannerTimeMapper.minutesPerDay - newStart.totalMinutes;
-      }
+    // ── Universal midnight guard ────────────────────────────────────
+    // Never let the end cross past midnight when resizing the top.
+    final endMinute = newStart.totalMinutes + newDuration;
+    if (endMinute > PlannerTimeMapper.minutesPerDay) {
+      newDuration = PlannerTimeMapper.minutesPerDay - newStart.totalMinutes;
+    }
+    if (debugDragPosition) {
+      debugPrint('[dragPos] resizeTop '
+          'endMinute=$endMinute '
+          'newStartMinute=${newStart.totalMinutes} '
+          'newDuration=$newDuration '
+          'snapDurationMin=${_session!.snapDurationMin} '
+          'localOffset.dy=${localOffset.dy.toStringAsFixed(1)}');
     }
     // Enforce minimum slot duration.
     final minDuration = widget.dayParam.slotSelectionParam.minSlotDurationMinutes;
@@ -1509,16 +1571,25 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         newDuration = maxDuration;
       }
     }
-    // ── Universal midnight guard (applies in both single-day and multi-day modes).
-    // If the snap was single-day, prevent the resize from pushing the end past
-    // midnight.  Midnight itself (end == 24:00) is a valid boundary.
-    final snapEndMinute = (_session!.snapStartDate.totalMinutes + _session!.snapDurationMin).toDouble();
-    final snapWasSingleDay = snapEndMinute <= PlannerTimeMapper.minutesPerDay;
-    if (snapWasSingleDay) {
-      final endMinute = _session!.snapStartDate.totalMinutes + newDuration;
-      if (endMinute > PlannerTimeMapper.minutesPerDay) {
-        newDuration = PlannerTimeMapper.minutesPerDay - _session!.snapStartDate.totalMinutes;
-      }
+    // ── Universal midnight guard ────────────────────────────────────
+    // Never let the end cross past the nearest midnight boundary,
+    // matching single-day behavior for all slots.  To extend into
+    // another day the user must use the API.
+    final snapEndMinute = _session!.snapStartDate.totalMinutes + _session!.snapDurationMin;
+    final nextMidnight = ((snapEndMinute - 1) ~/ PlannerTimeMapper.minutesPerDay + 1) * PlannerTimeMapper.minutesPerDay;
+    final maxMidnightDuration = nextMidnight - _session!.snapStartDate.totalMinutes;
+    if (newDuration > maxMidnightDuration) {
+      newDuration = maxMidnightDuration;
+    }
+    if (debugDragPosition) {
+      debugPrint('[dragPos] resizeBottom '
+          'snapEndMinute=$snapEndMinute '
+          'nextMidnight=$nextMidnight '
+          'maxMidnightDuration=$maxMidnightDuration '
+          'newDuration=$newDuration '
+          'localOffset.dy=${localOffset.dy.toStringAsFixed(1)} '
+          'hpm=${mapper.heightPerMinute.toStringAsFixed(2)} '
+          'slotDuration=${slot.durationInMinutes}');
     }
     // Enforce minimum slot duration.
     final minDuration = widget.dayParam.slotSelectionParam.minSlotDurationMinutes;

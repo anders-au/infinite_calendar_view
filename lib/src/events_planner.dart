@@ -1786,33 +1786,40 @@ class TimedSlotSelection extends SlotSelection {
   DateTime get endDateTime =>
       startDateTime.add(Duration(minutes: durationInMinutes));
 
-  /// Number of calendar days spanned by this slot, always ≥ 1.
-  /// For a slot starting at 6pm and ending at 7am the next day this
-  /// returns 2.
-  /// Ending at exactly midnight (00:00) is treated as the end of the
-  /// current day, not the start of the next, so a slot ending at
-  /// midnight is still single-day.
-  int get totalDaysSpanned {
+  /// The effective end, treating midnight (00:00:00) as the last
+  /// instant of the previous day.  Use this for all day-boundary
+  /// calculations — it ensures a slot ending at midnight is still
+  /// considered to end within the same calendar day.
+  DateTime get effectiveEndDateTime {
     final end = endDateTime;
-    // If the end time is exactly midnight it belongs to the current
-    // day, not the next.  Subtract one day so that withoutTime
-    // comparison doesn't count it as an extra day.
-    final effectiveEnd = (end.hour == 0 && end.minute == 0 && end.second == 0 && end.millisecond == 0 && end.microsecond == 0)
-        ? end.subtract(const Duration(days: 1))
-        : end;
-    return effectiveEnd.withoutTime.difference(startDateTime.withoutTime).inDays + 1;
+    final isMidnight = end.hour == 0 && end.minute == 0 &&
+        end.second == 0 && end.millisecond == 0 && end.microsecond == 0;
+    return isMidnight ? end.subtract(const Duration(microseconds: 1)) : end;
   }
+
+  /// Minute-of-day for the end of this slot.
+  ///
+  /// Returns a value in [1, 1440].  Midnight is mapped to 1440 (bottom
+  /// of the day) rather than 0 (top of the next day).  Full-day columns
+  /// in the middle of a multi-day span naturally wrap to 1440 as well.
+  int get endMinuteOfDay {
+    final total = startDateTime.totalMinutes + durationInMinutes;
+    final mod = total % PlannerTimeMapper.minutesPerDay;
+    return (mod == 0 && total > 0) ? PlannerTimeMapper.minutesPerDay : mod;
+  }
+
+  /// Number of calendar days spanned by this slot, always ≥ 1.
+  /// Uses [effectiveEndDateTime] so that a slot ending at midnight is
+  /// still treated as single-day (midnight belongs to the current day).
+  int get totalDaysSpanned =>
+      effectiveEndDateTime.withoutTime.difference(startDateTime.withoutTime).inDays + 1;
 
   /// Converts this timed slot into an all-day slot.
   /// The all-day slot spans from the date of [startDateTime] through the
   /// date of the slot's end time (the next day if it crosses midnight).
   AllDaySlotSelection toAllDay() {
     final startDay = startDateTime.withoutTime;
-    final endDt = startDateTime.add(Duration(minutes: durationInMinutes));
-    final endDay = endDt.withoutTime;
-    // If the slot ends at exactly midnight of the next day, endDay may
-    // already equal startDay (because of withoutTime).  In that case the
-    // slot occupies one full day.
+    final endDay = effectiveEndDateTime.withoutTime;
     return AllDaySlotSelection(
       columnIndex: columnIndex,
       initialStartDate: initialStartDate,
