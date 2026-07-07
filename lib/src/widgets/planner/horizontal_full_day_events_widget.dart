@@ -493,7 +493,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
       return DecoratedBox(
         decoration: BoxDecoration(
           color: fillColor,
-          border: Border.all(color: accent, width: 2),
+          border: Border.all(color: accent, width: 2, strokeAlign: BorderSide.strokeAlignInside),
           borderRadius: BorderRadius.circular(borderRadius),
           boxShadow: [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
         ),

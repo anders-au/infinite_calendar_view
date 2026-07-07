@@ -1338,7 +1338,6 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     final param = widget.dayParam.slotSelectionParam;
     final round = param.dragIncrementMinutes?.call(widget.slot.columnIndex, widget.slot.startDateTime) ?? widget.dayParam.onSlotMinutesRound;
     final alwaysBefore = widget.dayParam.onSlotRoundAlwaysBefore;
-    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
 
     int roundMins(double value, int step) {
       if (alwaysBefore) {
@@ -1347,22 +1346,15 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
       return step * (value / step).round();
     }
 
-    double minuteFromY(double y) {
-      if (maxColSpan != null) {
-        return mapper.yToMinuteExtended(y);
-      }
-      return mapper.yToMinute(y);
-    }
-
     switch (_session!.mode) {
       case _DragMode.shift:
-        _applyShiftDrag(localOffset, mapper, round, roundMins, minuteFromY);
+        _applyShiftDrag(localOffset, mapper, round, roundMins);
         break;
       case _DragMode.resizeTop:
-        _applyResizeTopDrag(localOffset, mapper, round, roundMins, minuteFromY);
+        _applyResizeTopDrag(localOffset, mapper, round, roundMins);
         break;
       case _DragMode.resizeBottom:
-        _applyResizeBottomDrag(localOffset, mapper, round, roundMins, minuteFromY);
+        _applyResizeBottomDrag(localOffset, mapper, round, roundMins);
         break;
     }
   }
@@ -1372,14 +1364,9 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     PlannerTimeMapper mapper,
     int round,
     int Function(double, int) roundMins,
-    double Function(double) minuteFromY,
   ) {
     final slot = widget.slot;
-    final initialMinute = _session!.snapStartDate.totalMinutes.toDouble();
-    final initialY = mapper.minuteToY(initialMinute);
-    final currentMinute = minuteFromY(initialY + localOffset.dy);
-    final minutesDelta = currentMinute - initialMinute;
-    final minutesDeltaRounded = roundMins(minutesDelta, round);
+    final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
     final daysDelta = (localOffset.dx / widget.dayWidth).round();
     final targetMidnight = _session!.snapStartDate.withoutTime.addCalendarDays(daysDelta);
     // DateTime.add handles minute values that cross day boundaries, so
@@ -1439,14 +1426,9 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     PlannerTimeMapper mapper,
     int round,
     int Function(double, int) roundMins,
-    double Function(double) minuteFromY,
   ) {
     final slot = widget.slot;
-    final startMinute = _session!.snapStartDate.totalMinutes.toDouble();
-    final startY = mapper.minuteToY(startMinute);
-    final currentMinute = minuteFromY(startY + localOffset.dy);
-    final rawDelta = currentMinute - startMinute;
-    final minutesDeltaRounded = roundMins(rawDelta, round);
+    final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
     final snapMidnight = _session!.snapStartDate.withoutTime;
     // DateTime.add naturally handles negative minute values (previous day).
     final newStart = snapMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
@@ -1504,15 +1486,12 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     PlannerTimeMapper mapper,
     int round,
     int Function(double, int) roundMins,
-    double Function(double) minuteFromY,
   ) {
     final slot = widget.slot;
-    // Absolute end minute from day 0 midnight (not clamped to 1440).
-    final snapEndMinute = (_session!.snapStartDate.totalMinutes + _session!.snapDurationMin).toDouble();
-    final endY = mapper.minuteToYExtended(snapEndMinute);
-    final currentMinute = minuteFromY(endY + localOffset.dy);
-    final rawDelta = currentMinute - snapEndMinute;
-    final minutesDeltaRounded = roundMins(rawDelta, round);
+    // Convert pixel delta directly to minutes — a slot's height is always
+    // duration × heightPerMinute with no cell gaps inside, so this avoids
+    // the fragile minuteToYExtended / yToMinuteExtended round-trip.
+    final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
     var newDuration = _session!.snapDurationMin + minutesDeltaRounded;
     // Cap duration based on configured maximum column span.
     final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
@@ -1533,6 +1512,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // ── Universal midnight guard (applies in both single-day and multi-day modes).
     // If the snap was single-day, prevent the resize from pushing the end past
     // midnight.  Midnight itself (end == 24:00) is a valid boundary.
+    final snapEndMinute = (_session!.snapStartDate.totalMinutes + _session!.snapDurationMin).toDouble();
     final snapWasSingleDay = snapEndMinute <= PlannerTimeMapper.minutesPerDay;
     if (snapWasSingleDay) {
       final endMinute = _session!.snapStartDate.totalMinutes + newDuration;
