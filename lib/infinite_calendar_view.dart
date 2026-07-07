@@ -27,3 +27,13 @@ export './src/widgets/planner/horizontal_days_indicator_widget.dart';
 export './src/widgets/planner/horizontal_full_day_events_widget.dart';
 export './src/widgets/planner/interactive_slot.dart';
 export './src/widgets/planner/vertical_time_indicator_widget.dart';
+
+// New interactive slot system (coexisting with old)
+export './src/interactive_slot/slot_selection.dart';
+export './src/interactive_slot/slot_config.dart';
+export './src/interactive_slot/slot_constraints.dart';
+export './src/interactive_slot/slot_geometry.dart';
+export './src/interactive_slot/slot_controller.dart';
+export './src/interactive_slot/slot_renderer.dart';
+export './src/interactive_slot/slot_overlay.dart';
+export './src/interactive_slot/handles/slot_handle.dart';

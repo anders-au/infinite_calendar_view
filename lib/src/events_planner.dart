@@ -19,6 +19,9 @@ import 'widgets/planner/horizontal_days_indicator_widget.dart';
 import 'widgets/planner/horizontal_full_day_events_widget.dart';
 import 'widgets/planner/interactive_slot.dart';
 import 'widgets/planner/vertical_time_indicator_widget.dart';
+import 'interactive_slot/slot_config.dart';
+import 'interactive_slot/slot_overlay.dart';
+import 'interactive_slot/slot_selection.dart';
 
 class EventsPlanner extends StatefulWidget {
   const EventsPlanner({
@@ -60,6 +63,7 @@ class EventsPlanner extends StatefulWidget {
     this.snapToDaysShowed = true,
     this.autoScrollToNow = false,
     this.initialScrollHour = 8,
+    this.useNewSlotSystem = false,
   });
 
   /// data controller
@@ -230,6 +234,13 @@ class EventsPlanner extends StatefulWidget {
   /// Clamped to 0–23. Defaults to 8 (08:00).
   final int initialScrollHour;
 
+  /// When true, uses the new [CalendarSlot]-based interactive slot system
+  /// instead of the legacy [TimedSlotSelection]/[AllDaySlotSelection] system.
+  ///
+  /// Both systems coexist — the new system is opt-in for now.
+  /// Defaults to false.
+  final bool useNewSlotSystem;
+
   @override
   State createState() => EventsPlannerState();
 }
@@ -268,6 +279,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   final Object _plannerViewControllerOwner = Object();
   Listenable? _slotOverlayListenable;
 
+  /// Notifier for the new [CalendarSlot] system.  Only used when
+  /// [EventsPlanner.useNewSlotSystem] is true.
+  final ValueNotifier<CalendarSlot?> _calendarSlotNotifier =
+      ValueNotifier<CalendarSlot?>(null);
+
   PlannerTimeMapper get plannerTimeMapper => PlannerTimeMapper(
         heightPerMinute: heightPerMinute,
         cellGapHeight: widget.cellGapHeight,
@@ -296,6 +312,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     mainVerticalController = widget.verticalScrollController ?? ScrollController(initialScrollOffset: widget.initialVerticalScrollOffset);
     _slotOverlayListenable = Listenable.merge([
       _controller.slotSelectionNotifier,
+      _calendarSlotNotifier,
       mainHorizontalController,
     ]);
     _plannerViewController = widget.plannerViewController ?? PlannerViewController();
@@ -317,6 +334,13 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       }
     };
     _controller.slotSelectionNotifier.addListener(_slotSelectionListener!);
+
+    // ── Sync old → new slot model when using the new system ────────────
+    if (widget.useNewSlotSystem) {
+      _controller.slotSelectionNotifier.addListener(_syncToNewSlotModel);
+      // Initial sync in case a slot was already set.
+      _syncToNewSlotModel();
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // index calculation and first day showed
@@ -408,6 +432,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       _controller.slotSelectionNotifier.removeListener(_slotSelectionListener!);
       _slotSelectionListener = null;
     }
+    if (widget.useNewSlotSystem) {
+      _controller.slotSelectionNotifier.removeListener(_syncToNewSlotModel);
+    }
     if (_syncHorizontalControllersListener != null) {
       mainHorizontalController.removeListener(_syncHorizontalControllersListener!);
     }
@@ -437,6 +464,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
     _plannerViewController.detach(owner: _plannerViewControllerOwner);
     topLeftCellValueNotifier.dispose();
+    _calendarSlotNotifier.dispose();
 
     super.dispose();
   }
@@ -938,6 +966,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   Widget _buildSlotOverlay(double cellGapWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
+    // ── New slot system (opt-in) ────────────────────────────────────
+    if (widget.useNewSlotSystem) {
+      return _buildNewSlotOverlay(cellGapWidthPadding, plannerHeight);
+    }
+
+    // ── Legacy slot system ──────────────────────────────────────────
     return AnimatedBuilder(
       animation: _slotOverlayListenable!,
       builder: (context, _) {
@@ -1106,6 +1140,106 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                       ?.call(updatedSlot);
                 },
               ),
+        );
+      },
+    );
+  }
+
+  /// New slot overlay using the [CalendarSlot] system.
+  Widget _buildNewSlotOverlay(double cellGapWidthPadding, double plannerHeight) {
+    final slot = _calendarSlotNotifier.value;
+    if (slot == null) return const SizedBox.shrink();
+
+    final paddedWidth = dayWidth - cellGapWidthPadding * 2;
+    final columnPositions = widget.columnsParam.getColumPositions(
+      paddedWidth,
+      slot.columnIndex,
+    );
+
+    final leftInset = widget.textDirection == TextDirection.ltr
+        ? widget.timesIndicatorsParam.timesIndicatorsWidth
+        : 0.0;
+    final rightInset = widget.textDirection == TextDirection.ltr
+        ? 0.0
+        : widget.timesIndicatorsParam.timesIndicatorsWidth;
+
+    // Build config from existing params so the new system mirrors old
+    // settings without consumers needing to provide a separate config.
+    final param = widget.dayParam.slotSelectionParam;
+    final config = SlotInteractionConfig(
+      stepMinutes: param.dragIncrementMinutes?.call(slot.columnIndex, slot.startDateTime) ?? widget.dayParam.onSlotMinutesRound,
+      enableShift: param.canDragSlotSelectionAfterShow,
+      enableExtendStart: param.enableExtendStartHandle,
+      enableExtendEnd: param.enableExtendEndHandle,
+      enableHorizontalAxis: true,
+      enableVerticalAxis: true,
+      minDurationMinutes: param.minSlotDurationMinutes,
+      maxColumnSpan: param.maxColumnSpan,
+      showHandles: param.showHandles,
+      handleZoneSize: param.handleZoneSize,
+      dragThreshold: param.dragThreshold,
+      accentColor: param.accentColor,
+      slotBorderRadius: param.slotBorderRadius,
+      showDefaultSlotText: param.showDefaultSlotText,
+      use24HourFormat: param.use24HourFormat,
+      onChanged: (updated) {
+        _calendarSlotNotifier.value = updated;
+        param.onSlotSelectionChange?.call(
+          updated != null
+              ? TimedSlotSelection(
+                  columnIndex: updated.columnIndex,
+                  initialStartDate: updated.initialStartDate,
+                  startDateTime: updated.startDateTime,
+                  durationInMinutes: updated.durationInMinutes,
+                )
+              : null,
+        );
+      },
+      onTap: (s) => param.onSlotSelectionTap?.call(
+        TimedSlotSelection(
+          columnIndex: s.columnIndex,
+          initialStartDate: s.initialStartDate,
+          startDateTime: s.startDateTime,
+          durationInMinutes: s.durationInMinutes,
+        ),
+      ),
+    );
+
+    return SlotOverlay(
+      slotNotifier: _calendarSlotNotifier,
+      config: config,
+      timeMapper: plannerTimeMapper,
+      dayWidth: dayWidth,
+      plannerHeight: plannerHeight,
+      dayTopPadding: widget.dayParam.dayTopPadding,
+      dayBottomPadding: widget.dayParam.dayBottomPadding,
+      cellGapWidthPadding: cellGapWidthPadding,
+      columnPositions: columnPositions,
+      initialDate: initialDate,
+      scrollController: mainHorizontalController,
+      verticalScrollController: mainVerticalController,
+      viewportLeftInset: leftInset,
+      viewportRightInset: rightInset,
+      onDragStart: () {
+        _isSlotDragging = true;
+      },
+      onDragEnd: (keepInView) {
+        setState(() => _isSlotDragging = false);
+        if (keepInView != null) {
+          _reconcileAfterSlotDrag(keepInView);
+        }
+      },
+      onChanged: (updated) {
+        _calendarSlotNotifier.value = updated;
+        param.onSlotSelectionChange?.call(
+          updated != null
+              ? TimedSlotSelection(
+                  columnIndex: updated.columnIndex,
+                  initialStartDate: updated.initialStartDate,
+                  startDateTime: updated.startDateTime,
+                  durationInMinutes: updated.durationInMinutes,
+                )
+              : null,
         );
       },
     );
@@ -1523,6 +1657,30 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       return;
     }
     mainVerticalController.jumpTo(_clampVerticalOffset(verticalScrollOffset));
+  }
+
+  /// Syncs old [TimedSlotSelection] from the controller's notifier to the
+  /// new [CalendarSlot] notifier.  Suppressed while the new system is
+  /// actively dragging to avoid feedback loops with [onChanged].
+  void _syncToNewSlotModel() {
+    if (_isSlotDragging) return;
+    final oldSlot = _controller.slotSelectionNotifier.value;
+    if (oldSlot is TimedSlotSelection) {
+      _calendarSlotNotifier.value = CalendarSlot(
+        columnIndex: oldSlot.columnIndex,
+        initialStartDate: oldSlot.initialStartDate,
+        startDateTime: oldSlot.startDateTime,
+        endDateTime: oldSlot.endDateTime,
+      );
+    } else if (oldSlot is AllDaySlotSelection) {
+      _calendarSlotNotifier.value = CalendarSlot.allDayFromTap(
+        columnIndex: oldSlot.columnIndex,
+        startDate: oldSlot.startDate,
+        endDate: oldSlot.endDate,
+      );
+    } else if (oldSlot == null) {
+      _calendarSlotNotifier.value = null;
+    }
   }
 }
 
@@ -2141,6 +2299,8 @@ class SlotSelectionParam {
     this.onSlotSelectionTap,
     this.onSlotSelectionLongPress,
     this.enableSlotSelectionResize = true,
+    this.enableExtendStartHandle = true,
+    this.enableExtendEndHandle = true,
     this.slotSelectionTopHandleBuilder,
     this.slotSelectionBottomHandleBuilder,
     this.accentColor,
@@ -2208,6 +2368,16 @@ class SlotSelectionParam {
 
   /// enable interactive slot selection top and bottom handle for resize
   final bool enableSlotSelectionResize;
+
+  /// Enable the start (top) drag handle independently.
+  /// When false, the start handle is hidden and non-interactive even if
+  /// [enableSlotSelectionResize] is true.  Defaults to true.
+  final bool enableExtendStartHandle;
+
+  /// Enable the end (bottom) drag handle independently.
+  /// When false, the end handle is hidden and non-interactive even if
+  /// [enableSlotSelectionResize] is true.  Defaults to true.
+  final bool enableExtendEndHandle;
 
   /// interactive slot selection top handle builder (for resize)
   final Widget Function()? slotSelectionTopHandleBuilder;
