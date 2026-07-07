@@ -55,17 +55,14 @@ class HorizontalFullDayEventsWidget extends StatefulWidget {
   final VoidCallback? onSlotDragEnd;
 
   DateTime getDayFromIndex(int index) {
-    return initialDate
-        .addCalendarDays(textDirection == TextDirection.ltr ? index : -index);
+    return initialDate.addCalendarDays(textDirection == TextDirection.ltr ? index : -index);
   }
 
   @override
-  State<HorizontalFullDayEventsWidget> createState() =>
-      _HorizontalFullDayEventsWidgetState();
+  State<HorizontalFullDayEventsWidget> createState() => _HorizontalFullDayEventsWidgetState();
 }
 
-class _HorizontalFullDayEventsWidgetState
-    extends State<HorizontalFullDayEventsWidget> {
+class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsWidget> {
   /// Tracks the maximum number of event rows needed by the overlay.
   /// Updated every frame by [MultiDayEventsOverlay].
   final ValueNotifier<int> _maxEventRows = ValueNotifier(0);
@@ -121,14 +118,12 @@ class _HorizontalFullDayEventsWidgetState
           SizedBox(
             width: timesIndicatorsWidth,
             height: barHeight,
-            child: fullDayParam.fullDayEventsBarLeftWidget ??
+            child:
+                fullDayParam.fullDayEventsBarLeftWidget ??
                 Center(
                   child: Text(
                     fullDayParam.fullDayEventsBarLeftText,
-                    style: TextStyle(
-                      color: theme.colorScheme.outline,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: theme.colorScheme.outline, fontSize: 12),
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -164,8 +159,7 @@ class _HorizontalFullDayEventsWidgetState
                               fullDayParam: fullDayParam,
                               columnsParam: columnsParam,
                               dayWidth: dayWidth,
-                              cellGapWidthPadding:
-                                  cellGapWidthPadding,
+                              cellGapWidthPadding: cellGapWidthPadding,
                             ),
                           );
                         },
@@ -179,26 +173,19 @@ class _HorizontalFullDayEventsWidgetState
                   if (fullDayParam.fullDayEventsBuilder == null)
                     Positioned.fill(
                       child: MultiDayEventsOverlay(
-                      controller: controller,
-                      scrollController: dayHorizontalController,
-                      fullDayParam: fullDayParam,
-                      dayWidth: dayWidth,
-                      cellGapWidthPadding: cellGapWidthPadding,
-                      getDayFromIndex: widget.getDayFromIndex,
-                      maxRowsNotifier: _maxEventRows,
-                    ),
+                        controller: controller,
+                        scrollController: dayHorizontalController,
+                        fullDayParam: fullDayParam,
+                        dayWidth: dayWidth,
+                        cellGapWidthPadding: cellGapWidthPadding,
+                        getDayFromIndex: widget.getDayFromIndex,
+                        maxRowsNotifier: _maxEventRows,
+                      ),
                     ),
                   // All-day slot selection overlay — a pill that appears
                   // when the user taps or long-presses a day cell in the
                   // all-day bar.  Styled to match InteractiveSlot.
-                  _buildAllDaySlotOverlay(
-                      controller,
-                      columnsParam,
-                      fullDayParam,
-                      theme,
-                      widget.onSlotDragStart,
-                      widget.onSlotDragEnd,
-                    ),
+                  _buildAllDaySlotOverlay(controller, columnsParam, fullDayParam, theme, widget.onSlotDragStart, widget.onSlotDragEnd),
                 ],
               ),
             ),
@@ -234,10 +221,7 @@ class _HorizontalFullDayEventsWidgetState
   ) {
     final param = fullDayParam.allDaySlotSelectionParam;
     return AnimatedBuilder(
-      animation: Listenable.merge([
-        controller.slotSelectionNotifier,
-        widget.dayHorizontalController,
-      ]),
+      animation: Listenable.merge([controller.slotSelectionNotifier, widget.dayHorizontalController]),
       builder: (context, _) {
         final selection = controller.slotSelectionNotifier.value;
         if (selection is! AllDaySlotSelection) return const SizedBox.shrink();
@@ -251,31 +235,21 @@ class _HorizontalFullDayEventsWidgetState
         if (!widget.dayHorizontalController.hasClients) {
           return const SizedBox.shrink();
         }
-        final scrollOffset =
-            widget.dayHorizontalController.positions.first.pixels;
+        final scrollOffset = widget.dayHorizontalController.positions.first.pixels;
 
         // Compute the start day index from initialDate.
-        final startDiff = selection.startDate.withoutTime
-            .difference(widget.initialDate.withoutTime)
-            .inDays;
-        final startIndex = widget.textDirection == TextDirection.rtl
-            ? -startDiff
-            : startDiff;
+        final startDiff = selection.startDate.withoutTime.difference(widget.initialDate.withoutTime).inDays;
+        final startIndex = widget.textDirection == TextDirection.rtl ? -startDiff : startDiff;
         final daysSpan = selection.dayCount;
 
         // Column offset within the day cell.
         final innerWidth = dayWidth - pad * 2;
-        final columnPositions =
-            columnsParam.getColumPositions(innerWidth, selection.columnIndex);
+        final columnPositions = columnsParam.getColumPositions(innerWidth, selection.columnIndex);
 
         // Natural left edge (before clamping).
-        final naturalLeft =
-            startIndex * dayWidth - scrollOffset + pad + columnPositions[0];
+        final naturalLeft = startIndex * dayWidth - scrollOffset + pad + columnPositions[0];
         // Width spans across all days in the selection.
-        final naturalWidth = (daysSpan - 1) * dayWidth +
-            columnPositions[1] -
-            columnPositions[0] -
-            eventEndGap;
+        final naturalWidth = (daysSpan - 1) * dayWidth + columnPositions[1] - columnPositions[0] - eventEndGap;
 
         // Apply sticky-left for multi-day selections, matching the
         // MultiDayEventsOverlay behaviour.
@@ -292,8 +266,7 @@ class _HorizontalFullDayEventsWidgetState
         }
 
         // Visibility culling.
-        final viewportWidth =
-            MediaQuery.of(context).size.width - widget.timesIndicatorsWidth;
+        final viewportWidth = MediaQuery.of(context).size.width - widget.timesIndicatorsWidth;
         if (naturalLeft + naturalWidth <= 0 || naturalLeft >= viewportWidth) {
           return const SizedBox.shrink();
         }
@@ -303,8 +276,7 @@ class _HorizontalFullDayEventsWidgetState
         // is scrolled out of view.
         final edgeThreshold = dayWidth * 0.5;
         final startInView = naturalLeft > -edgeThreshold;
-        final endInView =
-            naturalLeft + naturalWidth < viewportWidth + edgeThreshold;
+        final endInView = naturalLeft + naturalWidth < viewportWidth + edgeThreshold;
 
         final double top = rowPadding + selection.rowIndex * (eventHeight + rowPadding);
 
@@ -313,18 +285,16 @@ class _HorizontalFullDayEventsWidgetState
           top: top,
           width: width,
           height: eventHeight,
-          child: param.slotSelectionContentBuilder?.call(selection) ??
+          child:
+              param.slotSelectionContentBuilder?.call(selection) ??
               AllDayInteractiveSlot(
                 slot: selection,
-                renderLeftHandle:
-                    startInView && param.enableResize,
-                renderRightHandle:
-                    endInView && param.enableResize,
+                renderLeftHandle: startInView && param.enableResize,
+                renderRightHandle: endInView && param.enableResize,
                 dayWidth: dayWidth,
                 param: param,
                 horizontalScrollController: widget.dayHorizontalController,
-                mainContentHorizontalController:
-                    widget.mainContentHorizontalController,
+                mainContentHorizontalController: widget.mainContentHorizontalController,
                 viewportLeftInset: widget.timesIndicatorsWidth,
                 onDragStart: onSlotDragStart,
                 onDragEnd: onSlotDragEnd,
@@ -348,13 +318,7 @@ class _HorizontalFullDayEventsWidgetState
 enum _AllDayDragMode { shift, resizeLeft, resizeRight }
 
 class _AllDaySlotDragRecognizer extends OneSequenceGestureRecognizer {
-  _AllDaySlotDragRecognizer({
-    required this.dragThreshold,
-    required this.onStart,
-    required this.onUpdate,
-    required this.onEnd,
-    required this.onTap,
-  });
+  _AllDaySlotDragRecognizer({required this.dragThreshold, required this.onStart, required this.onUpdate, required this.onEnd, required this.onTap});
 
   final double dragThreshold;
   final void Function(Offset globalPosition) onStart;
@@ -387,12 +351,14 @@ class _AllDaySlotDragRecognizer extends OneSequenceGestureRecognizer {
         resolve(GestureDisposition.accepted);
         onStart(_startGlobal!);
       }
-      onUpdate(DragUpdateDetails(
-        sourceTimeStamp: event.timeStamp,
-        delta: event.localDelta,
-        globalPosition: event.position,
-        localPosition: event.localPosition,
-      ));
+      onUpdate(
+        DragUpdateDetails(
+          sourceTimeStamp: event.timeStamp,
+          delta: event.localDelta,
+          globalPosition: event.position,
+          localPosition: event.localPosition,
+        ),
+      );
     } else if (event is PointerUpEvent) {
       if (!_dragStarted) {
         onTap();
@@ -529,23 +495,13 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
           color: fillColor,
           border: Border.all(color: accent, width: 2),
           borderRadius: BorderRadius.circular(borderRadius),
-          boxShadow: [
-            BoxShadow(
-              color: accent.withAlpha(25),
-              blurRadius: 4,
-              offset: const Offset(0, 1),
-            ),
-          ],
+          boxShadow: [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
         ),
         child: param.showDefaultSlotText
             ? Center(
                 child: Text(
                   _formatDate(widget.slot.startDate),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: accent,
-                    fontSize: 11,
-                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -563,9 +519,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
       child: Builder(
         builder: (innerContext) {
           final gestures = <Type, GestureRecognizerFactory>{
-            _AllDaySlotDragRecognizer:
-                GestureRecognizerFactoryWithHandlers<
-                    _AllDaySlotDragRecognizer>(
+            _AllDaySlotDragRecognizer: GestureRecognizerFactoryWithHandlers<_AllDaySlotDragRecognizer>(
               () => _AllDaySlotDragRecognizer(
                 dragThreshold: param.dragThreshold,
                 onStart: _onDragStart,
@@ -580,11 +534,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
             ),
           };
 
-          return RawGestureDetector(
-            behavior: HitTestBehavior.opaque,
-            gestures: gestures,
-            child: _buildPill(accent, borderRadius, theme),
-          );
+          return RawGestureDetector(behavior: HitTestBehavior.opaque, gestures: gestures, child: _buildPill(accent, borderRadius, theme));
         },
       ),
     );
@@ -593,26 +543,13 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
   Widget _buildPill(Color accent, double borderRadius, ThemeData theme) {
     final fillColor = accent.withAlpha(30);
     final param = widget.param;
-    final slot = widget.slot;
 
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: _dragCommitted
-            ? [
-                BoxShadow(
-                  color: accent.withAlpha(70),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ]
-            : [
-                BoxShadow(
-                  color: accent.withAlpha(25),
-                  blurRadius: 4,
-                  offset: const Offset(0, 1),
-                ),
-              ],
+            ? [BoxShadow(color: accent.withAlpha(70), blurRadius: 10, offset: const Offset(0, 3))]
+            : [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
       ),
       child: Stack(
         clipBehavior: Clip.none,
@@ -625,19 +562,15 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
                 border: Border.all(color: accent, width: 2),
                 borderRadius: BorderRadius.circular(borderRadius),
               ),
-              child: param.showDefaultSlotText
-                  ? _buildDateLabels(Theme.of(context), accent)
-                  : null,
+              child: param.showDefaultSlotText ? _buildDateLabels(Theme.of(context), accent) : null,
             ),
           ),
           // Left handle (resize start) — only when the actual start
           // edge is visible in the viewport.
-          if (widget.renderLeftHandle)
-            _buildResizeHandle(accent, isLeft: true),
+          if (widget.renderLeftHandle) _buildResizeHandle(accent, isLeft: true),
           // Right handle (resize end) — only when the actual end
           // edge is visible in the viewport.
-          if (widget.renderRightHandle)
-            _buildResizeHandle(accent, isLeft: false),
+          if (widget.renderRightHandle) _buildResizeHandle(accent, isLeft: false),
         ],
       ),
     );
@@ -653,16 +586,12 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
       top: 6,
       bottom: 6,
       child: Align(
-        alignment:
-            isLeft ? Alignment.centerLeft : Alignment.centerRight,
+        alignment: isLeft ? Alignment.centerLeft : Alignment.centerRight,
         child: Container(
           width: 4,
           height: 24,
           margin: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(
-            color: accent,
-            borderRadius: BorderRadius.circular(3),
-          ),
+          decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(3)),
         ),
       ),
     );
@@ -674,34 +603,31 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     final slot = widget.slot;
     final isSingleDay = DateUtils.isSameDay(slot.startDate, slot.endDate);
 
-    if (isSingleDay) {
-      return Center(
-        child: Text(
-          _formatDate(slot.startDate),
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: accent,
-            fontSize: 11,
-          ),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      );
-    }
-
     return LayoutBuilder(
       builder: (context, constraints) {
+
+        if (constraints.maxWidth < 60) {
+          return const SizedBox.shrink();
+        }
+
+        if (isSingleDay) {
+          return Center(
+            child: Text(
+              _formatDate(slot.startDate),
+              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          );
+        }
+
         // Very narrow pills: just show the start date once, centered.
         if (constraints.maxWidth < 100) {
           return Center(
             child: Text(
               _formatDate(slot.startDate),
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: accent,
-                fontSize: 11,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -726,11 +652,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   _formatDate(slot.startDate),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: accent,
-                    fontSize: 11,
-                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -745,11 +667,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
                 alignment: Alignment.centerRight,
                 child: Text(
                   _formatDate(slot.endDate),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: accent,
-                    fontSize: 11,
-                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -805,9 +723,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     _dragMode = _determineDragMode(globalPosition);
 
     setState(() {
-      _effectiveCursor = _dragMode == _AllDayDragMode.shift
-          ? SystemMouseCursors.grabbing
-          : SystemMouseCursors.resizeLeftRight;
+      _effectiveCursor = _dragMode == _AllDayDragMode.shift ? SystemMouseCursors.grabbing : SystemMouseCursors.resizeLeftRight;
     });
 
     // Cancel any active ballistic scroll on both controllers so
@@ -817,15 +733,11 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     // multiple scroll views (e.g. the planner's InfiniteList).
     final mhc = widget.mainContentHorizontalController;
     if (mhc?.hasClients == true) {
-      mhc!.animateTo(mhc.positions.first.pixels,
-          duration: const Duration(milliseconds: 16),
-          curve: Curves.linear);
+      mhc!.animateTo(mhc.positions.first.pixels, duration: const Duration(milliseconds: 16), curve: Curves.linear);
     }
     final hc = widget.horizontalScrollController;
     if (hc?.hasClients == true) {
-      hc!.animateTo(hc.positions.first.pixels,
-          duration: const Duration(milliseconds: 16),
-          curve: Curves.linear);
+      hc!.animateTo(hc.positions.first.pixels, duration: const Duration(milliseconds: 16), curve: Curves.linear);
     }
 
     widget.onDragStart?.call();
@@ -884,10 +796,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
         if (totalDays == 0) return;
         final newStart = _snapStartDate.addCalendarDays(totalDays);
         final newEnd = _snapEndDate.addCalendarDays(totalDays);
-        widget.onChanged(widget.slot.copyWith(
-          startDate: newStart,
-          endDate: newEnd,
-        ));
+        widget.onChanged(widget.slot.copyWith(startDate: newStart, endDate: newEnd));
 
       case _AllDayDragMode.resizeLeft:
         var newStart = _snapStartDate.addCalendarDays(totalDays);
@@ -908,8 +817,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
   void _updateAutoScroll() {
     if (widget.autoScrollThreshold <= 0) return;
 
-    final hasMain =
-        widget.mainContentHorizontalController?.hasClients == true;
+    final hasMain = widget.mainContentHorizontalController?.hasClients == true;
     final hasHeader = widget.horizontalScrollController?.hasClients == true;
     if (!hasMain && !hasHeader) return;
 
@@ -936,10 +844,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     }
 
     if (_autoScrollTimer == null || !_autoScrollTimer!.isActive) {
-      _autoScrollTimer = Timer.periodic(
-        const Duration(milliseconds: 16),
-        _onAutoScrollTick,
-      );
+      _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 16), _onAutoScrollTick);
     }
   }
 
@@ -961,11 +866,9 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     final leftDist = pos.dx - viewportBounds.left;
     final rightDist = viewportBounds.right - pos.dx;
     if (leftDist < threshold) {
-      horizontalScrollAmount =
-          -_computeScrollSpeed(leftDist, threshold, maxSpeed);
+      horizontalScrollAmount = -_computeScrollSpeed(leftDist, threshold, maxSpeed);
     } else if (rightDist < threshold) {
-      horizontalScrollAmount =
-          _computeScrollSpeed(rightDist, threshold, maxSpeed);
+      horizontalScrollAmount = _computeScrollSpeed(rightDist, threshold, maxSpeed);
     }
 
     if (horizontalScrollAmount == 0) {
@@ -981,10 +884,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     double actualDelta = 0;
     if (mainHc != null && mainHc.hasClients) {
       final oldOffset = mainHc.offset;
-      final newOffset = (oldOffset + horizontalScrollAmount).clamp(
-        mainHc.position.minScrollExtent,
-        mainHc.position.maxScrollExtent,
-      );
+      final newOffset = (oldOffset + horizontalScrollAmount).clamp(mainHc.position.minScrollExtent, mainHc.position.maxScrollExtent);
       final delta = newOffset - oldOffset;
       if (delta.abs() > 0.01) {
         mainHc.jumpTo(newOffset);
@@ -995,10 +895,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     // Fallback: if no main controller, drive the header directly.
     if (actualDelta == 0 && headerHc != null && headerHc.hasClients) {
       final oldOffset = headerHc.offset;
-      final newOffset = (oldOffset + horizontalScrollAmount).clamp(
-        headerHc.position.minScrollExtent,
-        headerHc.position.maxScrollExtent,
-      );
+      final newOffset = (oldOffset + horizontalScrollAmount).clamp(headerHc.position.minScrollExtent, headerHc.position.maxScrollExtent);
       final delta = newOffset - oldOffset;
       if (delta.abs() > 0.01) {
         headerHc.jumpTo(newOffset);
@@ -1014,22 +911,14 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
     }
   }
 
-  double _computeScrollSpeed(
-    double distanceFromEdge,
-    double threshold,
-    double maxSpeed,
-  ) {
+  double _computeScrollSpeed(double distanceFromEdge, double threshold, double maxSpeed) {
     if (distanceFromEdge >= threshold) return 0;
     if (distanceFromEdge <= 0) return maxSpeed;
     return maxSpeed * (1.0 - distanceFromEdge / threshold);
   }
 
   Rect? _getViewportBounds() {
-    return InteractiveSlotState.viewportBoundsOf(
-      context,
-      leftInset: widget.viewportLeftInset,
-      rightInset: widget.viewportRightInset,
-    );
+    return InteractiveSlotState.viewportBoundsOf(context, leftInset: widget.viewportLeftInset, rightInset: widget.viewportRightInset);
   }
 
   void _stopAutoScroll() {
@@ -1040,10 +929,7 @@ class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
   // ── formatting ────────────────────────────────────────────────────
 
   String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${months[date.month - 1]} ${date.day}';
   }
 }
@@ -1132,9 +1018,11 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     // LayoutBuilder is safe here because we are inside Positioned.fill whose
     // constraints come from the fixed-size Stack parent — they never change
     // on scroll, so no layout churn occurs.
-    return LayoutBuilder(builder: (context, constraints) {
-      return _buildOverlay(constraints.maxWidth);
-    });
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return _buildOverlay(constraints.maxWidth);
+      },
+    );
   }
 
   Widget _buildOverlay(double viewportWidth) {
@@ -1147,8 +1035,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     const lookback = 90;
 
     final firstVisibleIndex = (offset / widget.dayWidth).floor();
-    final lastVisibleIndex =
-        firstVisibleIndex + (viewportWidth / widget.dayWidth).ceil() + 1;
+    final lastVisibleIndex = firstVisibleIndex + (viewportWidth / widget.dayWidth).ceil() + 1;
 
     // Collect all full-day events.
     // Multi-day: only daysIndex==0 (first segment), from lookback window.
@@ -1179,8 +1066,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     }
 
     if (eventByKey.isEmpty) {
-      final hasSlot = widget.controller.slotSelectionNotifier.value
-          is AllDaySlotSelection;
+      final hasSlot = widget.controller.slotSelectionNotifier.value is AllDaySlotSelection;
       widget.maxRowsNotifier?.value = hasSlot ? 1 : 0;
       return const SizedBox.shrink();
     }
@@ -1192,10 +1078,8 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       final e = eventByKey[key]!;
       int daysSpan = 1;
       if (e.isMultiDay && e.effectiveEndTime != null) {
-        final endDay = DateTime(e.effectiveEndTime!.year,
-            e.effectiveEndTime!.month, e.effectiveEndTime!.day);
-        final startDay =
-            DateTime(e.startTime.year, e.startTime.month, e.startTime.day);
+        final endDay = DateTime(e.effectiveEndTime!.year, e.effectiveEndTime!.month, e.effectiveEndTime!.day);
+        final startDay = DateTime(e.startTime.year, e.startTime.month, e.startTime.day);
         daysSpan = endDay.difference(startDay).inDays + 1;
       }
       spanByKey[key] = daysSpan;
@@ -1206,8 +1090,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     // events, producing stable row assignment as the viewport scrolls.
     final keys = eventByKey.keys.toList()
       ..sort((a, b) {
-        final timeComp =
-            eventByKey[a]!.startTime.compareTo(eventByKey[b]!.startTime);
+        final timeComp = eventByKey[a]!.startTime.compareTo(eventByKey[b]!.startTime);
         if (timeComp != 0) return timeComp;
         return (spanByKey[b] ?? 1).compareTo(spanByKey[a] ?? 1); // longer first
       });
@@ -1219,20 +1102,16 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       final startIndex = startIndexByKey[key]!;
       final endIndex = startIndex + spanByKey[key]! - 1;
       int r = 0;
-      while (r < rowLastOccupied.length &&
-          rowLastOccupied[r] >= startIndex) {
+      while (r < rowLastOccupied.length && rowLastOccupied[r] >= startIndex) {
         r++;
       }
-      rowLastOccupied.length <= r
-          ? rowLastOccupied.add(endIndex)
-          : rowLastOccupied[r] = endIndex;
+      rowLastOccupied.length <= r ? rowLastOccupied.add(endIndex) : rowLastOccupied[r] = endIndex;
       rowByKey[key] = r;
     }
 
     // When an all-day interactive slot is active, shift every event
     // down by one row so the slot always sits on top without overlap.
-    final hasSlotSelection =
-        widget.controller.slotSelectionNotifier.value is AllDaySlotSelection;
+    final hasSlotSelection = widget.controller.slotSelectionNotifier.value is AllDaySlotSelection;
     if (hasSlotSelection) {
       for (final key in rowByKey.keys) {
         rowByKey[key] = rowByKey[key]! + 1;
@@ -1240,9 +1119,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     }
 
     // Report total rows: events + optional slot row.
-    widget.maxRowsNotifier?.value = rowByKey.values.isEmpty
-        ? (hasSlotSelection ? 1 : 0)
-        : (rowByKey.values.reduce((a, b) => a > b ? a : b) + 1);
+    widget.maxRowsNotifier?.value = rowByKey.values.isEmpty ? (hasSlotSelection ? 1 : 0) : (rowByKey.values.reduce((a, b) => a > b ? a : b) + 1);
 
     final List<Widget> positioned = [];
     for (final key in keys) {
@@ -1262,9 +1139,9 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       // never causes a ghost render. Single-day events use pixel math since
       // they have no sticky-clamp behaviour and never span the viewport.
       if (daysSpan > 1) {
-        if (endIndex < firstVisibleIndex) continue;   // all days off-screen left
-        if (startIndex > lastVisibleIndex) continue;  // all days off-screen right
-        if (naturalRight <= 0) continue;              // last day clipped off left
+        if (endIndex < firstVisibleIndex) continue; // all days off-screen left
+        if (startIndex > lastVisibleIndex) continue; // all days off-screen right
+        if (naturalRight <= 0) continue; // last day clipped off left
       } else {
         if (naturalRight <= 0 || naturalLeft >= viewportWidth) continue;
       }
@@ -1292,47 +1169,40 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
 
       final double top = rowPadding + row * (eventHeight + rowPadding);
 
-      positioned.add(Positioned(
-        left: left,
-        top: top,
-        width: width,
-        height: eventHeight,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onLongPressStart: (_) {
-            // Long-pressing an existing all-day event creates a new
-            // AllDaySlotSelection on the event's start day.  It always
-            // occupies row 0 (the top track); existing events are
-            // pushed down by the bar's auto-resize system.
-            final param =
-                widget.fullDayParam.allDaySlotSelectionParam;
-            final day =
-                widget.getDayFromIndex(startIndex).withoutTime;
-            final selection = AllDaySlotSelection(
-              columnIndex: 0,
-              initialStartDate: day,
-              startDate: day,
-              endDate: day,
-              rowIndex: 0,
-            );
-            widget.controller.slotSelectionNotifier.value =
-                selection;
-            param.onSlotSelectionLongPress?.call(selection);
-            param.onSlotSelectionChange?.call(selection);
-          },
-          child: widget.fullDayParam.fullDayEventBuilder
-                      ?.call(event, width) ??
-              DefaultDayEvent(
-                height: eventHeight,
-                width: width,
-                title: event.title,
-                titleFontSize: 10,
-                description: event.description,
-                color: event.color,
-                textColor: event.textColor,
-              ),
+      positioned.add(
+        Positioned(
+          left: left,
+          top: top,
+          width: width,
+          height: eventHeight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onLongPressStart: (_) {
+              // Long-pressing an existing all-day event creates a new
+              // AllDaySlotSelection on the event's start day.  It always
+              // occupies row 0 (the top track); existing events are
+              // pushed down by the bar's auto-resize system.
+              final param = widget.fullDayParam.allDaySlotSelectionParam;
+              final day = widget.getDayFromIndex(startIndex).withoutTime;
+              final selection = AllDaySlotSelection(columnIndex: 0, initialStartDate: day, startDate: day, endDate: day, rowIndex: 0);
+              widget.controller.slotSelectionNotifier.value = selection;
+              param.onSlotSelectionLongPress?.call(selection);
+              param.onSlotSelectionChange?.call(selection);
+            },
+            child:
+                widget.fullDayParam.fullDayEventBuilder?.call(event, width) ??
+                DefaultDayEvent(
+                  height: eventHeight,
+                  width: width,
+                  title: event.title,
+                  titleFontSize: 10,
+                  description: event.description,
+                  color: event.color,
+                  textColor: event.textColor,
+                ),
+          ),
         ),
-      ));
+      );
     }
 
     if (positioned.isEmpty) return const SizedBox.shrink();
@@ -1394,24 +1264,18 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
   @override
   Widget build(BuildContext context) {
     final param = widget.fullDayParam.allDaySlotSelectionParam;
-    final canInteract =
-        param.enableTapSlotSelection || param.enableLongPressSlotSelection;
+    final canInteract = param.enableTapSlotSelection || param.enableLongPressSlotSelection;
     final width = widget.dayWidth - (widget.cellGapWidthPadding * 2);
 
     // Only render the background colour and optional column dividers.
     // All events are rendered by MultiDayEventsOverlay.
     final child = Padding(
-      padding:
-          EdgeInsets.symmetric(horizontal: widget.cellGapWidthPadding),
+      padding: EdgeInsets.symmetric(horizontal: widget.cellGapWidthPadding),
       child: Container(
         decoration: BoxDecoration(
-          color: widget.isToday && widget.todayColor != null
-              ? widget.todayColor
-              : widget.fullDayParam.fullDayBackgroundColor,
+          color: widget.isToday && widget.todayColor != null ? widget.todayColor : widget.fullDayParam.fullDayBackgroundColor,
         ),
-        child: widget.columnsParam.columns > 1
-            ? getColumnPainter(width)
-            : null,
+        child: widget.columnsParam.columns > 1 ? getColumnPainter(width) : null,
       ),
     );
 
@@ -1419,12 +1283,8 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onTapUp: param.enableTapSlotSelection
-          ? (details) => _onAllDayTap(details, width)
-          : null,
-      onLongPressStart: param.enableLongPressSlotSelection
-          ? (details) => _onAllDayTap(details, width, isLongPress: true)
-          : null,
+      onTapUp: param.enableTapSlotSelection ? (details) => _onAllDayTap(details, width) : null,
+      onLongPressStart: param.enableLongPressSlotSelection ? (details) => _onAllDayTap(details, width, isLongPress: true) : null,
       child: child,
     );
   }
@@ -1441,12 +1301,7 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
     }
 
     final day = widget.day.withoutTime;
-    final selection = AllDaySlotSelection(
-      columnIndex: column,
-      initialStartDate: day,
-      startDate: day,
-      endDate: day,
-    );
+    final selection = AllDaySlotSelection(columnIndex: column, initialStartDate: day, startDate: day, endDate: day);
 
     widget.controller.slotSelectionNotifier.value = selection;
 
@@ -1463,13 +1318,9 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
       width: width,
       height: widget.fullDayParam.fullDayEventsBarHeight,
       child: CustomPaint(
-        foregroundPainter: widget.columnsParam.columnCustomPainter
-                ?.call(width, widget.columnsParam.columns) ??
-            ColumnPainter(
-              width: width,
-              columnsParam: widget.columnsParam,
-              lineColor: Theme.of(context).colorScheme.outlineVariant,
-            ),
+        foregroundPainter:
+            widget.columnsParam.columnCustomPainter?.call(width, widget.columnsParam.columns) ??
+            ColumnPainter(width: width, columnsParam: widget.columnsParam, lineColor: Theme.of(context).colorScheme.outlineVariant),
       ),
     );
   }

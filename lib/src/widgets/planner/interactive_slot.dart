@@ -19,16 +19,16 @@ import '../../utils/planner_time_mapper.dart';
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
-  _SlotDragRecognizer({
-    required this.dragThreshold,
-    required this.onStart,
-    required this.onUpdate,
-    required this.onEnd,
-    required this.onTap,
-  });
+  _SlotDragRecognizer({required this.dragThreshold, this.dragMode, required this.onStart, required this.onUpdate, required this.onEnd, required this.onTap});
 
   final double dragThreshold;
-  final VoidCallback onStart;
+
+  /// If non-null, the drag mode is pre-determined by the creator (e.g.
+  /// multi-day handle zones).  If null, the [InteractiveSlotState] will
+  /// determine the mode from the pointer position on the first update.
+  final _DragMode? dragMode;
+
+  final void Function(_DragMode? mode) onStart;
   final void Function(DragUpdateDetails) onUpdate;
   final VoidCallback onEnd;
   final VoidCallback onTap;
@@ -70,14 +70,16 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
         if (delta.distance < dragThreshold) return;
         _dragStarted = true;
         resolve(GestureDisposition.accepted);
-        onStart();
+        onStart(dragMode);
       }
-      onUpdate(DragUpdateDetails(
-        sourceTimeStamp: event.timeStamp,
-        delta: event.localDelta,
-        globalPosition: event.position,
-        localPosition: event.localPosition,
-      ));
+      onUpdate(
+        DragUpdateDetails(
+          sourceTimeStamp: event.timeStamp,
+          delta: event.localDelta,
+          globalPosition: event.position,
+          localPosition: event.localPosition,
+        ),
+      );
     } else if (event is PointerUpEvent) {
       if (!_dragStarted) {
         onTap();
@@ -137,10 +139,30 @@ class _SlotDragRecognizer extends OneSequenceGestureRecognizer {
 // Drag mode enum
 // ═══════════════════════════════════════════════════════════════════════════
 
-enum _DragMode {
-  shift,
-  resizeTop,
-  resizeBottom,
+enum _DragMode { shift, resizeTop, resizeBottom }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Immutable snapshot of the slot state taken at drag start.
+//
+// A nullable `_SlotDragSession?` field replaces the previous five
+// scattered mutable fields (`_dragMode`, `_dragCommitted`,
+// `_snapStartDate`, `_snapEndDate`, `_snapDurationMin`).
+// `_session == null` means no drag is in progress; a non-null session
+// means the drag is committed and its mode/time anchors are immutable.
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _SlotDragSession {
+  const _SlotDragSession({
+    required this.mode,
+    required this.snapStartDate,
+    required this.snapEndDate,
+    required this.snapDurationMin,
+  });
+
+  final _DragMode mode;
+  final DateTime snapStartDate;
+  final DateTime snapEndDate;
+  final int snapDurationMin;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -163,9 +185,16 @@ class InteractiveSlot extends StatefulWidget {
     this.autoScrollMaxSpeed = 8.0,
     this.viewportLeftInset = 0,
     this.viewportRightInset = 0,
+    this.cellGapWidthPadding = 0,
     this.onDragStart,
     this.onDragEnd,
   });
+
+  /// Half the [EventsPlanner.cellGapWidth], used as horizontal padding
+  /// on each side of every day column.  Multi-day slots use this to
+  /// constrain per-day segments to the actual column content area so
+  /// they do not bleed into the gap between day columns.
+  final double cellGapWidthPadding;
 
   final TimedSlotSelection slot;
   final double dayWidth;
@@ -202,20 +231,22 @@ class InteractiveSlot extends StatefulWidget {
   final VoidCallback? onDragStart;
 
   /// Called when a drag gesture ends (pointer up or cancelled).
-  final VoidCallback? onDragEnd;
+  /// [isResize] is true when the drag was a resize operation (top or
+  /// bottom handle) and false when it was a positional shift.
+  final void Function({required bool isResize})? onDragEnd;
 
-  PlannerTimeMapper get timeMapper =>
-      plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
+  PlannerTimeMapper get timeMapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
   State<InteractiveSlot> createState() => InteractiveSlotState();
 }
 
-class InteractiveSlotState extends State<InteractiveSlot>
-    with WidgetsBindingObserver {
+class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObserver {
   // ── drag state ──────────────────────────────────────────────────────
-  _DragMode? _dragMode;
-  bool _dragCommitted = false;
+  /// Null when no drag is active; non-null once the drag is committed
+  /// (first move past threshold).  The session's [mode] and snapshot
+  /// times are immutable for the lifetime of the drag.
+  _SlotDragSession? _session;
 
   // ── debug logging ───────────────────────────────────────────────────
   static bool _debugDrag = true;
@@ -223,11 +254,14 @@ class InteractiveSlotState extends State<InteractiveSlot>
     if (_debugDrag) debugPrint('[InteractiveSlot] $msg');
   }
 
-  // ── snapshots taken at drag start ───────────────────────────────────
-  DateTime _snapStartDate = DateTime.now();
-  DateTime _snapEndDate = DateTime.now();
-  int _snapDurationMin = 0;
+  /// Accumulated pixel delta since drag start (or last auto-scroll
+  /// compensation).  Independent of widget repositioning.
   Offset _accumulatedDelta = Offset.zero;
+
+  /// Carries the drag mode from [_onDragStart] to the first
+  /// [_onDragUpdate] call where the session is created.  Cleared
+  /// in [_resetDrag].
+  _DragMode? _preSetMode;
 
   // ── cursor state ────────────────────────────────────────────────────
   MouseCursor _effectiveCursor = SystemMouseCursors.basic;
@@ -259,8 +293,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
       _log('App lifecycle: $state — forcing drag reset');
       _resetDrag();
     }
@@ -285,10 +318,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
         cursor: _effectiveCursor,
         onHover: _isDragging ? null : _onHover,
         onExit: _isDragging ? null : (_) => _updateCursor(null),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: _buildMultiDayBody(theme, accent, borderRadius),
-        ),
+        child: Stack(clipBehavior: Clip.none, children: _buildMultiDayBody(theme, accent, borderRadius)),
       );
     }
 
@@ -306,11 +336,10 @@ class InteractiveSlotState extends State<InteractiveSlot>
           builder: (innerContext) {
             final gestures = canDrag
                 ? <Type, GestureRecognizerFactory>{
-                    _SlotDragRecognizer:
-                        GestureRecognizerFactoryWithHandlers<
-                            _SlotDragRecognizer>(
+                    _SlotDragRecognizer: GestureRecognizerFactoryWithHandlers<_SlotDragRecognizer>(
                       () => _SlotDragRecognizer(
                         dragThreshold: param.dragThreshold,
+                        // null dragMode: single-day, detected by position on first update
                         onStart: _onDragStart,
                         onUpdate: _onDragUpdate,
                         onEnd: _resetDrag,
@@ -327,31 +356,15 @@ class InteractiveSlotState extends State<InteractiveSlot>
               behavior: HitTestBehavior.opaque,
               gestures: gestures,
               child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(borderRadius),
-                boxShadow: _dragCommitted
-                    ? [
-                        BoxShadow(
-                          color: accent.withAlpha(70),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ]
-                    : [
-                        BoxShadow(
-                          color: accent.withAlpha(25),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(borderRadius),
+                  boxShadow: _session != null
+                      ? [BoxShadow(color: accent.withAlpha(70), blurRadius: 10, offset: const Offset(0, 3))]
+                      : [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
+                ),
+                child: Stack(clipBehavior: Clip.none, children: _buildSingleDayChildren(theme, accent, borderRadius)),
               ),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: _buildSingleDayChildren(
-                    theme, accent, borderRadius),
-              ),
-            ),
-          );
+            );
           },
         ),
       ),
@@ -359,29 +372,19 @@ class InteractiveSlotState extends State<InteractiveSlot>
   }
 
   /// Builds the default single-day slot interior (original behavior).
-  List<Widget> _buildSingleDayChildren(
-    ThemeData theme,
-    Color accent,
-    double borderRadius,
-  ) {
+  List<Widget> _buildSingleDayChildren(ThemeData theme, Color accent, double borderRadius) {
     final param = widget.dayParam.slotSelectionParam;
     return [
       // ── content ──────────────────────────────────────────
-      Positioned.fill(
-        child: param.slotSelectionContentBuilder
-                ?.call(widget.slot) ??
-            _buildDefaultContent(theme, accent, borderRadius),
-      ),
+      Positioned.fill(child: param.slotSelectionContentBuilder?.call(widget.slot) ?? _buildDefaultContent(theme, accent, borderRadius)),
 
       // ── top handle indicator ─────────────────────────────
       if (param.enableSlotSelectionResize && param.showHandles)
-        param.slotSelectionTopHandleBuilder?.call() ??
-            _buildHandleIndicator(accent, isTop: true),
+        param.slotSelectionTopHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: true),
 
       // ── bottom handle indicator ──────────────────────────
       if (param.enableSlotSelectionResize && param.showHandles)
-        param.slotSelectionBottomHandleBuilder?.call() ??
-            _buildHandleIndicator(accent, isTop: false),
+        param.slotSelectionBottomHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: false),
     ];
   }
 
@@ -392,11 +395,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
   /// pass through to the scroll views behind it.  Only the narrow handle
   /// zones at the absolute start and end of the slot receive their own
   /// drag recognizers.
-  List<Widget> _buildMultiDayBody(
-    ThemeData theme,
-    Color accent,
-    double borderRadius,
-  ) {
+  List<Widget> _buildMultiDayBody(ThemeData theme, Color accent, double borderRadius) {
     final mapper = widget.timeMapper;
     final param = widget.dayParam.slotSelectionParam;
     final slot = widget.slot;
@@ -407,15 +406,30 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final totalDays = slot.totalDaysSpanned;
     final dayHeight = mapper.totalDayHeight();
     final dayWidth = widget.dayWidth;
+    final cellGapPad = widget.cellGapWidthPadding;
+    final paddedWidth = dayWidth - cellGapPad * 2;
+    final colPositions = widget.columnsParam.getColumPositions(paddedWidth, slot.columnIndex);
+    final colWidth = colPositions[1] - colPositions[0];
     final startMinuteOfDay = slot.startDateTime.totalMinutes.toDouble();
-    final totalEndMinute =
-        (slot.startDateTime.totalMinutes + slot.durationInMinutes)
-            .toDouble();
-    final endMinuteOfDay =
-        totalEndMinute % PlannerTimeMapper.minutesPerDay;
+    final totalEndMinute = (slot.startDateTime.totalMinutes + slot.durationInMinutes).toDouble();
+    var endMinuteOfDay = totalEndMinute % PlannerTimeMapper.minutesPerDay;
+    // Midnight end: treat as end-of-day so it renders at the bottom
+    // of the last day rather than the top of the following day.
+    if (endMinuteOfDay == 0 && totalEndMinute > 0) {
+      endMinuteOfDay = PlannerTimeMapper.minutesPerDay.toDouble();
+    }
 
     final startY = mapper.minuteToY(startMinuteOfDay);
-    final endY = mapper.minuteToY(endMinuteOfDay);
+    var endY = mapper.minuteToY(endMinuteOfDay);
+    // Gap correction: when the last segment ends exactly on an hour
+    // boundary, subtract the cell gap so the slot does not cover it
+    // (consistent with single-day slot and event rendering).
+    if (mapper.cellGapHeight > 0 &&
+        endMinuteOfDay > 0 &&
+        endMinuteOfDay < PlannerTimeMapper.minutesPerDay &&
+        endMinuteOfDay % PlannerTimeMapper.minutesPerHour == 0) {
+      endY -= mapper.cellGapHeight;
+    }
 
     final List<Widget> children = [];
 
@@ -450,7 +464,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
         Positioned(
           left: d * dayWidth,
           top: segTop,
-          width: dayWidth,
+          width: colWidth,
           height: segHeight,
           child: IgnorePointer(
             child: _SlotBody(
@@ -478,12 +492,9 @@ class InteractiveSlotState extends State<InteractiveSlot>
         Positioned(
           left: 6,
           top: startY + 6,
-          width: dayWidth - 12,
+          width: colWidth - 12,
           child: IgnorePointer(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: _buildHandlePill(accent),
-            ),
+            child: Align(alignment: Alignment.topCenter, child: _buildHandlePill(accent)),
           ),
         ),
       );
@@ -492,12 +503,9 @@ class InteractiveSlotState extends State<InteractiveSlot>
         Positioned(
           left: lastLeft + 6,
           top: endY - 14,
-          width: dayWidth - 12,
+          width: colWidth - 12,
           child: IgnorePointer(
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: _buildHandlePill(accent),
-            ),
+            child: Align(alignment: Alignment.bottomCenter, child: _buildHandlePill(accent)),
           ),
         ),
       );
@@ -508,7 +516,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
     // strips at the centre of each handle zone.
     if (canDrag && hasResize) {
       final double dragWidth = 40.0;
-      final double dragLeft = (dayWidth - dragWidth) / 2;
+      final double dragLeft = (colWidth - dragWidth) / 2;
 
       // Top resize handle — first day, startY..startY+zoneSize.
       children.add(
@@ -528,10 +536,10 @@ class InteractiveSlotState extends State<InteractiveSlot>
       );
 
       // Bottom resize handle — last day, endY-zoneSize..endY.
-      final lastLeft = (totalDays - 1) * dayWidth + dragLeft;
+      final lastLeft2 = (totalDays - 1) * dayWidth + dragLeft;
       children.add(
         Positioned(
-          left: lastLeft,
+          left: lastLeft2,
           top: endY - zoneSize,
           width: dragWidth,
           height: zoneSize,
@@ -595,11 +603,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
             child: Text(
               formatTime(start),
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: accent,
-                fontSize: 12,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 12),
             ),
           ),
         ),
@@ -608,24 +612,29 @@ class InteractiveSlotState extends State<InteractiveSlot>
 
     if (isFull) {
       // Centered summary: "Jan 1 6pm – Jan 2 7am"
-      final startLabel =
-          '${start.month}/${start.day} ${formatTime(start)}';
+      final startLabel = '${start.month}/${start.day} ${formatTime(start)}';
       final endLabel = '${end.month}/${end.day} ${formatTime(end)}';
-      final label = '$startLabel – $endLabel';
       return Center(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 6),
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w500,
-                color: accent,
-                fontSize: 11,
-              ),
+            child: Column(
+              spacing: 6,
+              children: [
+                Text(
+                  startLabel,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500, color: accent, fontSize: 11),
+                ),
+                Text(
+                  endLabel,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500, color: accent, fontSize: 11),
+                ),
+              ],
             ),
           ),
         ),
@@ -642,11 +651,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
           child: Text(
             formatTime(end),
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: accent,
-              fontSize: 12,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 12),
           ),
         ),
       ),
@@ -678,11 +683,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
   /// to give text more room in narrow columns (e.g., 7-day view).
   static const double _narrowWidthThreshold = 80.0;
 
-  Widget _buildDefaultContent(
-    ThemeData theme,
-    Color accent,
-    double borderRadius,
-  ) {
+  Widget _buildDefaultContent(ThemeData theme, Color accent, double borderRadius) {
     final param = widget.dayParam.slotSelectionParam;
     final slot = widget.slot;
 
@@ -690,8 +691,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final slotHeight = slot.durationInMinutes * widget.heightPerMinute;
 
     // ── decide whether to show text ────────────────────────────────────
-    final showText = param.showDefaultSlotText &&
-        slotHeight >= _minTextHeight;
+    final showText = param.showDefaultSlotText && slotHeight >= _minTextHeight;
 
     if (!showText) {
       return _SlotBody(accent: accent, borderRadius: borderRadius);
@@ -717,8 +717,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final endText = formatTime(end);
     final hours = duration.inHours;
     final remainingMins = duration.inMinutes % 60;
-    final durationText = (hours >= 1 ? '${hours}h ' : '') +
-        (remainingMins != 0 ? '${remainingMins}m' : '');
+    final durationText = (hours >= 1 ? '${hours}h ' : '') + (remainingMins != 0 ? '${remainingMins}m' : '');
 
     // ── determine layout density ──────────────────────────────────────
     final isCompact = slotHeight < _fullTextHeight;
@@ -734,28 +733,15 @@ class InteractiveSlotState extends State<InteractiveSlot>
           final isNarrow = constraints.maxWidth < _narrowWidthThreshold;
           final hPadding = isNarrow ? 4.0 : 12.0;
           return Padding(
-            padding: EdgeInsets.fromLTRB(
-              hPadding,
-              handlesVisible ? _handlePadding : 7,
-              hPadding,
-              handlesVisible ? _handlePadding : 7,
-            ),
-            child: isCompact
-                ? _buildCompactText(theme, accent, startText, endText)
-                : _buildFullText(
-                    theme, accent, startText, endText, durationText),
+            padding: EdgeInsets.fromLTRB(hPadding, handlesVisible ? _handlePadding : 7, hPadding, handlesVisible ? _handlePadding : 7),
+            child: isCompact ? _buildCompactText(theme, accent, startText, endText) : _buildFullText(theme, accent, startText, endText, durationText),
           );
         },
       ),
     );
   }
 
-  Widget _buildCompactText(
-    ThemeData theme,
-    Color accent,
-    String startText,
-    String endText,
-  ) {
+  Widget _buildCompactText(ThemeData theme, Color accent, String startText, String endText) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -764,24 +750,14 @@ class InteractiveSlotState extends State<InteractiveSlot>
           child: Text(
             startText,
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: accent,
-              fontSize: 12,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 12),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildFullText(
-    ThemeData theme,
-    Color accent,
-    String startText,
-    String endText,
-    String durationText,
-  ) {
+  Widget _buildFullText(ThemeData theme, Color accent, String startText, String endText, String durationText) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -790,14 +766,10 @@ class InteractiveSlotState extends State<InteractiveSlot>
           child: Text(
             startText,
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: accent,
-              fontSize: 12,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 12),
           ),
         ),
-       // const Spacer(),
+        // const Spacer(),
         // FittedBox(
         //   fit: BoxFit.scaleDown,
         //   child: Text(
@@ -815,11 +787,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
           child: Text(
             endText,
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: accent,
-              fontSize: 12,
-            ),
+            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 12),
           ),
         ),
       ],
@@ -836,10 +804,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
       width: 36,
       height: 4,
       margin: const EdgeInsets.symmetric(vertical: 2),
-      decoration: BoxDecoration(
-        color: accent,
-        borderRadius: BorderRadius.circular(3),
-      ),
+      decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(3)),
     );
   }
 
@@ -849,10 +814,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
       bottom: isTop ? null : 6,
       left: 6,
       right: 6,
-      child: Align(
-        alignment: isTop ? Alignment.topCenter : Alignment.bottomCenter,
-        child: _buildHandlePill(accent),
-      ),
+      child: Align(alignment: isTop ? Alignment.topCenter : Alignment.bottomCenter, child: _buildHandlePill(accent)),
     );
   }
 
@@ -884,7 +846,11 @@ class InteractiveSlotState extends State<InteractiveSlot>
       final startMinuteOfDay = slot.startDateTime.totalMinutes.toDouble();
       final startY = mapper.minuteToY(startMinuteOfDay);
       final totalEndMinute = (slot.startDateTime.totalMinutes + slot.durationInMinutes).toDouble();
-      final endMinuteOfDay = totalEndMinute % PlannerTimeMapper.minutesPerDay;
+      var endMinuteOfDay = totalEndMinute % PlannerTimeMapper.minutesPerDay;
+      // Midnight end: treat as end-of-day so the handle zone is at the bottom.
+      if (endMinuteOfDay == 0 && totalEndMinute > 0) {
+        endMinuteOfDay = PlannerTimeMapper.minutesPerDay.toDouble();
+      }
       final endY = mapper.minuteToY(endMinuteOfDay);
 
       // Top handle: pointer is on the first day and near the top of the first segment.
@@ -893,9 +859,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
         return;
       }
       // Bottom handle: pointer is on the last day and near the bottom of the last segment.
-      if (pointerDay == slot.totalDaysSpanned - 1 &&
-          localY >= endY - zoneSize &&
-          localY <= endY) {
+      if (pointerDay == slot.totalDaysSpanned - 1 && localY >= endY - zoneSize && localY <= endY) {
         _updateCursor(SystemMouseCursors.resizeDown);
         return;
       }
@@ -903,10 +867,12 @@ class InteractiveSlotState extends State<InteractiveSlot>
       return;
     }
 
-    // Single-day: original logic.
-    if (localY < zoneSize) {
+    // Single-day: pick the nearest handle when zones overlap.
+    final distToTop = localY;
+    final distToBottom = height - localY;
+    if (distToTop <= zoneSize && distToTop <= distToBottom) {
       _updateCursor(SystemMouseCursors.resizeUp);
-    } else if (localY > height - zoneSize) {
+    } else if (distToBottom <= zoneSize) {
       _updateCursor(SystemMouseCursors.resizeDown);
     } else {
       _updateCursor(SystemMouseCursors.grab);
@@ -921,17 +887,17 @@ class InteractiveSlotState extends State<InteractiveSlot>
 
   // ── immediate-drag handlers (no long-press delay) ────────────────────
 
-  void _onDragStart() {
+  void _onDragStart(_DragMode? preSetMode) {
     if (debugAutoScroll) {
-      debugPrint('[autoScroll] _onDragStart called');
+      debugPrint('[autoScroll] _onDragStart called (preSetMode=$preSetMode)');
     }
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
 
     widget.onDragStart?.call();
 
-    _dragMode = null;
-    _dragCommitted = false;
+    // For multi-day handles _MultiDayDragTarget threads the mode through
+    // the recognizer.  For single-day slots, preSetMode is null and we
+    // detect from pointer position on the first update.
+    _preSetMode = preSetMode;
     _accumulatedDelta = Offset.zero;
 
     // Kill any running ballistic scroll activity (a leftover fling) so
@@ -951,54 +917,80 @@ class InteractiveSlotState extends State<InteractiveSlot>
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
-    if (debugAutoScroll) {
-      debugPrint('[autoScroll] _onDragUpdate called, delta=(${details.delta.dx.toStringAsFixed(1)},${details.delta.dy.toStringAsFixed(1)}) '
-          'mode=$_dragMode');
-    }
     // Accumulate raw pixel delta — this is independent of widget position,
     // so it stays correct even as the slot is repositioned mid-drag.
     _accumulatedDelta += details.delta;
     _lastGlobalPosition = details.globalPosition;
     _lastDragUpdateTime = DateTime.now();
 
-    if (_dragMode == null) {
-      // _MultiDayDragTarget pre-sets _dragMode — only single-day slots
-      // need position-based detection here.
-      final renderBox = context.findRenderObject() as RenderBox?;
-      if (renderBox == null) return;
-
-      final height = renderBox.size.height;
-      final param = widget.dayParam.slotSelectionParam;
-      final hasResize = param.enableSlotSelectionResize;
-      final zoneSize = param.handleZoneSize;
-      final localY = renderBox.globalToLocal(details.globalPosition).dy;
-
-      if (hasResize && localY < zoneSize) {
-        _dragMode = _DragMode.resizeTop;
-      } else if (hasResize && localY > height - zoneSize) {
-        _dragMode = _DragMode.resizeBottom;
+    if (_session == null) {
+      // ── First update: determine mode and create the session ──────
+      _DragMode mode;
+      if (_preSetMode != null) {
+        // Multi-day handle: mode was threaded through the recognizer.
+        mode = _preSetMode!;
       } else {
-        _dragMode = _DragMode.shift;
+        // Single-day: detect mode from pointer position on first move.
+        final renderBox = context.findRenderObject() as RenderBox?;
+        if (renderBox == null) return;
+
+        final height = renderBox.size.height;
+        final param = widget.dayParam.slotSelectionParam;
+        final hasResize = param.enableSlotSelectionResize;
+        final zoneSize = param.handleZoneSize;
+        final localY = renderBox.globalToLocal(details.globalPosition).dy;
+
+        if (hasResize) {
+          // When the slot is very short the top and bottom handle zones
+          // can overlap (height < 2 × zoneSize).  In that ambiguous
+          // region, pick whichever handle the pointer is closer to
+          // rather than always defaulting to the top handle.
+          final distToTop = localY;
+          final distToBottom = height - localY;
+
+          if (distToTop <= zoneSize && distToTop <= distToBottom) {
+            mode = _DragMode.resizeTop;
+          } else if (distToBottom <= zoneSize) {
+            mode = _DragMode.resizeBottom;
+          } else {
+            mode = _DragMode.shift;
+          }
+        } else {
+          mode = _DragMode.shift;
+        }
       }
+
+      // ── Clear _preSetMode immediately so it can never leak into a
+      // subsequent drag session (e.g. when the gesture recognizer
+      // lifecycle delivers events out of the expected order).
+      _preSetMode = null;
 
       if (debugAutoScroll) {
-        debugPrint('[autoScroll] drag mode set to $_dragMode');
+        debugPrint('[autoScroll] drag mode set to $mode');
       }
-      final slot =  widget.slot;
-      _snapStartDate = slot.startDateTime;
-      _snapEndDate =
-          _snapStartDate.add(Duration(minutes: slot.durationInMinutes));
-      _snapDurationMin = slot.durationInMinutes;
+
+      // Snapshot the slot state (immutable for the drag lifetime).
+      final slot = widget.slot;
+      _session = _SlotDragSession(
+        mode: mode,
+        snapStartDate: slot.startDateTime,
+        snapEndDate: slot.startDateTime.add(Duration(minutes: slot.durationInMinutes)),
+        snapDurationMin: slot.durationInMinutes,
+      );
 
       setState(() {
         _isDragging = true;
-        _effectiveCursor = _dragMode == _DragMode.shift
-            ? SystemMouseCursors.grabbing
-            : SystemMouseCursors.resizeUpDown;
+        _effectiveCursor = mode == _DragMode.shift ? SystemMouseCursors.grabbing : SystemMouseCursors.resizeUpDown;
       });
 
-      param.onSlotSelectionLongPress?.call(slot);
-      _dragCommitted = true;
+      widget.dayParam.slotSelectionParam.onSlotSelectionLongPress?.call(slot);
+    }
+
+    if (debugAutoScroll) {
+      debugPrint(
+        '[autoScroll] _onDragUpdate called, delta=(${details.delta.dx.toStringAsFixed(1)},${details.delta.dy.toStringAsFixed(1)}) '
+        'mode=${_session!.mode}',
+      );
     }
 
     _applyDrag(_accumulatedDelta);
@@ -1006,7 +998,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
   }
 
   void _resetDrag() {
-    _log('_resetDrag called (mode=$_dragMode, dragging=$_isDragging, timer=${_autoScrollTimer != null})');
+    _log('_resetDrag called (session=${_session != null}, mode=${_session?.mode}, dragging=$_isDragging, timer=${_autoScrollTimer != null})');
     _stopAutoScroll();
     // Ensure scroll controllers are in a clean idle state so that
     // normal scroll physics (fling, snap-to-boundary) resume correctly.
@@ -1018,12 +1010,20 @@ class InteractiveSlotState extends State<InteractiveSlot>
     if (vc?.hasClients == true) {
       vc!.jumpTo(vc.offset);
     }
-    widget.onDragEnd?.call();
-    _dragMode = null;
-    _dragCommitted = false;
+    // Guard against double-call: addAllowedPointer may call onEnd again
+    // if a new pointer arrives before the old recognizer is disposed.
+    if (_session != null) {
+      final wasResize = _session!.mode != _DragMode.shift;
+      widget.onDragEnd?.call(isResize: wasResize);
+    }
+    _session = null;
+    _preSetMode = null;
     _accumulatedDelta = Offset.zero;
     _lastGlobalPosition = Offset.zero;
-    setState(() => _isDragging = false);
+    // Only call setState if we're still mounted and actually dragging.
+    if (mounted && _isDragging) {
+      setState(() => _isDragging = false);
+    }
     _updateCursor(SystemMouseCursors.basic);
   }
 
@@ -1043,9 +1043,11 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final hasHorizontal = widget.horizontalScrollController?.hasClients == true;
     if (!hasVertical && !hasHorizontal) {
       if (debugAutoScroll) {
-        debugPrint('[autoScroll] SKIP: no scroll clients '
-            '(v=${widget.verticalScrollController != null}, vClients=${widget.verticalScrollController?.hasClients}, '
-            'h=${widget.horizontalScrollController != null}, hClients=${widget.horizontalScrollController?.hasClients})');
+        debugPrint(
+          '[autoScroll] SKIP: no scroll clients '
+          '(v=${widget.verticalScrollController != null}, vClients=${widget.verticalScrollController?.hasClients}, '
+          'h=${widget.horizontalScrollController != null}, hClients=${widget.horizontalScrollController?.hasClients})',
+        );
       }
       return;
     }
@@ -1068,13 +1070,15 @@ class InteractiveSlotState extends State<InteractiveSlot>
       final topDist = pos.dy - viewportBounds.top;
       final bottomDist = viewportBounds.bottom - pos.dy;
       if (debugAutoScroll) {
-        debugPrint('[autoScroll] vp=(top:${viewportBounds.top.toStringAsFixed(0)}, '
-            'btm:${viewportBounds.bottom.toStringAsFixed(0)}, '
-            'h:${viewportBounds.height.toStringAsFixed(0)}) '
-            'ptr=(${pos.dx.toStringAsFixed(0)},${pos.dy.toStringAsFixed(0)}) '
-            'topDist=${topDist.toStringAsFixed(0)} '
-            'btmDist=${bottomDist.toStringAsFixed(0)} '
-            'thresh=$threshold');
+        debugPrint(
+          '[autoScroll] vp=(top:${viewportBounds.top.toStringAsFixed(0)}, '
+          'btm:${viewportBounds.bottom.toStringAsFixed(0)}, '
+          'h:${viewportBounds.height.toStringAsFixed(0)}) '
+          'ptr=(${pos.dx.toStringAsFixed(0)},${pos.dy.toStringAsFixed(0)}) '
+          'topDist=${topDist.toStringAsFixed(0)} '
+          'btmDist=${bottomDist.toStringAsFixed(0)} '
+          'thresh=$threshold',
+        );
       }
       if (topDist < threshold) {
         verticalSpeed = -_computeScrollSpeed(topDist, threshold, maxSpeed);
@@ -1100,21 +1104,19 @@ class InteractiveSlotState extends State<InteractiveSlot>
     }
 
     if (debugAutoScroll) {
-      debugPrint('[autoScroll] START timer vSpeed=${verticalSpeed.toStringAsFixed(1)} '
-          'hSpeed=${horizontalSpeed.toStringAsFixed(1)}');
+      debugPrint(
+        '[autoScroll] START timer vSpeed=${verticalSpeed.toStringAsFixed(1)} '
+        'hSpeed=${horizontalSpeed.toStringAsFixed(1)}',
+      );
     }
 
     // Start or continue the auto-scroll timer.
     if (_autoScrollTimer == null || !_autoScrollTimer!.isActive) {
-      _autoScrollTimer = Timer.periodic(
-        const Duration(milliseconds: 16),
-        _onAutoScrollTick,
-      );
+      _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 16), _onAutoScrollTick);
     }
   }
 
   void _stopAutoScroll() {
-
     _autoScrollTimer?.cancel();
     _autoScrollTimer = null;
   }
@@ -1131,17 +1133,15 @@ class InteractiveSlotState extends State<InteractiveSlot>
     // stolen by the system (e.g., Android edge gesture) without a
     // cancel / reject event.  Stop scrolling to prevent the timer
     // from interfering with subsequent normal scroll gestures.
-    if (DateTime.now().difference(_lastDragUpdateTime) >
-        _autoScrollStaleTimeout) {
+    if (DateTime.now().difference(_lastDragUpdateTime) > _autoScrollStaleTimeout) {
       if (debugAutoScroll) {
-        debugPrint('[autoScroll] STOP timer — stale (no drag update ' +
-            'for >${_autoScrollStaleTimeout.inMilliseconds}ms)');
+        debugPrint('[autoScroll] STOP timer — stale (no drag update ' + 'for >${_autoScrollStaleTimeout.inMilliseconds}ms)');
       }
       timer.cancel();
       _autoScrollTimer = null;
-      _dragMode = null;
-      _dragCommitted = false;
-      _accumulatedDelta = Offset.zero;
+      // Don't corrupt drag state here — the gesture recognizer
+      // lifecycle handles reset via onEnd/rejectGesture/cancel.
+      // Only stop scrolling; the drag session stays intact.
       return;
     }
 
@@ -1162,11 +1162,9 @@ class InteractiveSlotState extends State<InteractiveSlot>
       final topDist = pos.dy - viewportBounds.top;
       final bottomDist = viewportBounds.bottom - pos.dy;
       if (topDist < threshold) {
-        verticalScrollAmount =
-            -_computeScrollSpeed(topDist, threshold, maxSpeed);
+        verticalScrollAmount = -_computeScrollSpeed(topDist, threshold, maxSpeed);
       } else if (bottomDist < threshold) {
-        verticalScrollAmount =
-            _computeScrollSpeed(bottomDist, threshold, maxSpeed);
+        verticalScrollAmount = _computeScrollSpeed(bottomDist, threshold, maxSpeed);
       }
     }
 
@@ -1174,11 +1172,9 @@ class InteractiveSlotState extends State<InteractiveSlot>
       final leftDist = pos.dx - viewportBounds.left;
       final rightDist = viewportBounds.right - pos.dx;
       if (leftDist < threshold) {
-        horizontalScrollAmount =
-            -_computeScrollSpeed(leftDist, threshold, maxSpeed);
+        horizontalScrollAmount = -_computeScrollSpeed(leftDist, threshold, maxSpeed);
       } else if (rightDist < threshold) {
-        horizontalScrollAmount =
-            _computeScrollSpeed(rightDist, threshold, maxSpeed);
+        horizontalScrollAmount = _computeScrollSpeed(rightDist, threshold, maxSpeed);
       }
     }
 
@@ -1196,10 +1192,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
     if (verticalScrollAmount != 0) {
       final controller = widget.verticalScrollController!;
       final oldOffset = controller.offset;
-      final newOffset = (oldOffset + verticalScrollAmount).clamp(
-        controller.position.minScrollExtent,
-        controller.position.maxScrollExtent,
-      );
+      final newOffset = (oldOffset + verticalScrollAmount).clamp(controller.position.minScrollExtent, controller.position.maxScrollExtent);
       final actualDelta = newOffset - oldOffset;
       if (actualDelta.abs() > 0.01) {
         controller.jumpTo(newOffset);
@@ -1218,10 +1211,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
     if (horizontalScrollAmount != 0) {
       final controller = widget.horizontalScrollController!;
       final oldOffset = controller.offset;
-      final newOffset = (oldOffset + horizontalScrollAmount).clamp(
-        controller.position.minScrollExtent,
-        controller.position.maxScrollExtent,
-      );
+      final newOffset = (oldOffset + horizontalScrollAmount).clamp(controller.position.minScrollExtent, controller.position.maxScrollExtent);
       final actualDelta = newOffset - oldOffset;
       if (actualDelta.abs() > 0.01) {
         controller.jumpTo(newOffset);
@@ -1243,11 +1233,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
 
   /// Linear speed ramp: 0 at [threshold]-pixels from the edge,
   /// [maxSpeed] at (or past) the edge.
-  double _computeScrollSpeed(
-    double distanceFromEdge,
-    double threshold,
-    double maxSpeed,
-  ) {
+  double _computeScrollSpeed(double distanceFromEdge, double threshold, double maxSpeed) {
     if (distanceFromEdge >= threshold) {
       return 0;
     }
@@ -1266,11 +1252,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
   ///
   /// Falls back to the screen size (minus safe areas) if no suitable
   /// ancestor is found.
-  static Rect? viewportBoundsOf(
-    BuildContext context, {
-    double leftInset = 0,
-    double rightInset = 0,
-  }) {
+  static Rect? viewportBoundsOf(BuildContext context, {double leftInset = 0, double rightInset = 0}) {
     // Start from the parent so the calling widget's own RenderBox is
     // never mistaken for the viewport.  This matters for InteractiveSlot
     // whose own box can grow past the 200 px height threshold during a
@@ -1293,9 +1275,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
     while (current != null) {
       if (current is RenderBox && current.hasSize) {
         final size = current.size;
-        if (size.width >= 200 &&
-            size.height >= 200 &&
-            size.height <= screenHeight) {
+        if (size.width >= 200 && size.height >= 200 && size.height <= screenHeight) {
           try {
             final globalTop = current.localToGlobal(Offset.zero).dy;
             if (globalTop > bestTop) {
@@ -1319,19 +1299,16 @@ class InteractiveSlotState extends State<InteractiveSlot>
       try {
         final globalOffset = best!.localToGlobal(Offset.zero);
         if (debugAutoScroll) {
-          debugPrint('[autoScroll] selected viewport: '
-              'type=${best.runtimeType} '
-              'size=${best.size.width.toStringAsFixed(0)}x${best.size.height.toStringAsFixed(0)} '
-              'global=(${globalOffset.dx.toStringAsFixed(0)},${globalOffset.dy.toStringAsFixed(0)}) '
-              'insetL=${leftInset.toStringAsFixed(0)} '
-              'insetR=${rightInset.toStringAsFixed(0)}');
+          debugPrint(
+            '[autoScroll] selected viewport: '
+            'type=${best.runtimeType} '
+            'size=${best.size.width.toStringAsFixed(0)}x${best.size.height.toStringAsFixed(0)} '
+            'global=(${globalOffset.dx.toStringAsFixed(0)},${globalOffset.dy.toStringAsFixed(0)}) '
+            'insetL=${leftInset.toStringAsFixed(0)} '
+            'insetR=${rightInset.toStringAsFixed(0)}',
+          );
         }
-        return Rect.fromLTWH(
-          globalOffset.dx + leftInset,
-          globalOffset.dy,
-          best!.size.width - leftInset - rightInset,
-          best!.size.height,
-        );
+        return Rect.fromLTWH(globalOffset.dx + leftInset, globalOffset.dy, best!.size.width - leftInset - rightInset, best!.size.height);
       } catch (_) {}
     }
 
@@ -1351,11 +1328,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
   }
 
   Rect? _getViewportBounds() {
-    return viewportBoundsOf(
-      context,
-      leftInset: widget.viewportLeftInset,
-      rightInset: widget.viewportRightInset,
-    );
+    return viewportBoundsOf(context, leftInset: widget.viewportLeftInset, rightInset: widget.viewportRightInset);
   }
 
   // ── drag application ─────────────────────────────────────────────────
@@ -1365,6 +1338,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
     final param = widget.dayParam.slotSelectionParam;
     final round = param.dragIncrementMinutes?.call(widget.slot.columnIndex, widget.slot.startDateTime) ?? widget.dayParam.onSlotMinutesRound;
     final alwaysBefore = widget.dayParam.onSlotRoundAlwaysBefore;
+    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
 
     int roundMins(double value, int step) {
       if (alwaysBefore) {
@@ -1374,15 +1348,13 @@ class InteractiveSlotState extends State<InteractiveSlot>
     }
 
     double minuteFromY(double y) {
-      final maxDays =
-          widget.dayParam.slotSelectionParam.maxMultiDayDuration;
-      if (maxDays != null) {
+      if (maxColSpan != null) {
         return mapper.yToMinuteExtended(y);
       }
       return mapper.yToMinute(y);
     }
 
-    switch (_dragMode) {
+    switch (_session!.mode) {
       case _DragMode.shift:
         _applyShiftDrag(localOffset, mapper, round, roundMins, minuteFromY);
         break;
@@ -1390,10 +1362,7 @@ class InteractiveSlotState extends State<InteractiveSlot>
         _applyResizeTopDrag(localOffset, mapper, round, roundMins, minuteFromY);
         break;
       case _DragMode.resizeBottom:
-        _applyResizeBottomDrag(
-            localOffset, mapper, round, roundMins, minuteFromY);
-        break;
-      case null:
+        _applyResizeBottomDrag(localOffset, mapper, round, roundMins, minuteFromY);
         break;
     }
   }
@@ -1406,42 +1375,63 @@ class InteractiveSlotState extends State<InteractiveSlot>
     double Function(double) minuteFromY,
   ) {
     final slot = widget.slot;
-    final initialMinute = _snapStartDate.totalMinutes.toDouble();
+    final initialMinute = _session!.snapStartDate.totalMinutes.toDouble();
     final initialY = mapper.minuteToY(initialMinute);
     final currentMinute = minuteFromY(initialY + localOffset.dy);
     final minutesDelta = currentMinute - initialMinute;
     final minutesDeltaRounded = roundMins(minutesDelta, round);
     final daysDelta = (localOffset.dx / widget.dayWidth).round();
-    final targetMidnight =
-        _snapStartDate.withoutTime.addCalendarDays(daysDelta);
+    final targetMidnight = _session!.snapStartDate.withoutTime.addCalendarDays(daysDelta);
     // DateTime.add handles minute values that cross day boundaries, so
     // we no longer clamp to a single-day range.  Multi-day slots can
     // freely move across midnight.
-    final newStart =
-        targetMidnight.add(Duration(minutes: _snapStartDate.totalMinutes + minutesDeltaRounded));
+    final newStart = targetMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
     // Only clamp if multi-day is NOT enabled and the slot would cross midnight.
-    final maxDays = widget.dayParam.slotSelectionParam.maxMultiDayDuration;
-    if (maxDays == null) {
-      final maxStartMinute = PlannerTimeMapper.minutesPerDay - _snapDurationMin;
+    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
+    if (maxColSpan == null) {
+      final maxStartMinute = PlannerTimeMapper.minutesPerDay - _session!.snapDurationMin;
       final effectiveMinutes = newStart.difference(targetMidnight).inMinutes;
       final clampedMinute = effectiveMinutes.clamp(0, maxStartMinute);
       if (clampedMinute != effectiveMinutes) {
         final clampedStart = targetMidnight.add(Duration(minutes: clampedMinute));
-        widget.onChanged(TimedSlotSelection(
+        final resultSlot = TimedSlotSelection(
           columnIndex: slot.columnIndex,
           initialStartDate: slot.initialStartDate,
           startDateTime: clampedStart,
-          durationInMinutes: _snapDurationMin,
-        ));
+          durationInMinutes: _session!.snapDurationMin,
+        );
+        widget.onChanged(resultSlot);
         return;
       }
     }
-    widget.onChanged(TimedSlotSelection(
+    // ── Universal midnight guard: if the snap was single-day, prevent the
+    // shift from pushing the slot's end past midnight.  Midnight itself
+    // (end == 24:00) is a valid boundary and preserves interval alignment.
+    final snapEndMinute = _session!.snapStartDate.totalMinutes + _session!.snapDurationMin;
+    final snapWasSingleDay = snapEndMinute <= PlannerTimeMapper.minutesPerDay;
+    if (snapWasSingleDay) {
+      final endMinute = newStart.totalMinutes + _session!.snapDurationMin;
+      if (endMinute > PlannerTimeMapper.minutesPerDay) {
+        // End would cross past midnight — clamp start so end lands at midnight.
+        final safeStartMinute = PlannerTimeMapper.minutesPerDay - _session!.snapDurationMin;
+        final safeStart = targetMidnight.add(Duration(minutes: safeStartMinute));
+        final resultSlot = TimedSlotSelection(
+          columnIndex: slot.columnIndex,
+          initialStartDate: slot.initialStartDate,
+          startDateTime: safeStart,
+          durationInMinutes: _session!.snapDurationMin,
+        );
+        widget.onChanged(resultSlot);
+        return;
+      }
+    }
+    final resultSlot = TimedSlotSelection(
       columnIndex: slot.columnIndex,
       initialStartDate: slot.initialStartDate,
       startDateTime: newStart,
-      durationInMinutes: _snapDurationMin,
-    ));
+      durationInMinutes: _session!.snapDurationMin,
+    );
+    widget.onChanged(resultSlot);
   }
 
   void _applyResizeTopDrag(
@@ -1452,20 +1442,24 @@ class InteractiveSlotState extends State<InteractiveSlot>
     double Function(double) minuteFromY,
   ) {
     final slot = widget.slot;
-    final startMinute = _snapStartDate.totalMinutes.toDouble();
+    final startMinute = _session!.snapStartDate.totalMinutes.toDouble();
     final startY = mapper.minuteToY(startMinute);
     final currentMinute = minuteFromY(startY + localOffset.dy);
     final rawDelta = currentMinute - startMinute;
     final minutesDeltaRounded = roundMins(rawDelta, round);
-    final snapMidnight = _snapStartDate.withoutTime;
+    final snapMidnight = _session!.snapStartDate.withoutTime;
     // DateTime.add naturally handles negative minute values (previous day).
-    final newStart =
-        snapMidnight.add(Duration(minutes: _snapStartDate.totalMinutes + minutesDeltaRounded));
-    var newDuration = _snapEndDate.difference(newStart).inMinutes;
-    final maxDays = widget.dayParam.slotSelectionParam.maxMultiDayDuration;
-    if (maxDays != null) {
-      final maxMinutes = maxDays * PlannerTimeMapper.minutesPerDay;
-      newDuration = newDuration.clamp(round, maxMinutes);
+    final newStart = snapMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
+    var newDuration = _session!.snapEndDate.difference(newStart).inMinutes;
+    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
+    if (maxColSpan != null) {
+      final maxMinutes = widget.dayParam.slotSelectionParam
+          .maxDurationForStartMinute(newStart.totalMinutes);
+      // Never clamp below the snap duration — a slot that already
+      // exceeds the column-span limit (e.g. created programmatically)
+      // should not be forcibly shrunk when the handle is first grabbed.
+      final effectiveMax = max(maxMinutes!, _session!.snapDurationMin);
+      newDuration = newDuration.clamp(round, effectiveMax);
     } else {
       // Legacy: single-day cap.
       final maxTopMinute = PlannerTimeMapper.minutesPerDay - round;
@@ -1473,19 +1467,35 @@ class InteractiveSlotState extends State<InteractiveSlot>
       final clamped = effective.clamp(0, maxTopMinute);
       if (clamped != effective) {
         final clampedStart = snapMidnight.add(Duration(minutes: clamped));
-        newDuration = _snapEndDate.difference(clampedStart).inMinutes;
+        newDuration = _session!.snapEndDate.difference(clampedStart).inMinutes;
       }
       if (newDuration > PlannerTimeMapper.minutesPerDay) {
         newDuration = PlannerTimeMapper.minutesPerDay;
       }
     }
+    // ── Universal midnight guard: if the snap was single-day, prevent the
+    // resize from pushing the slot's end past midnight.  Midnight itself
+    // (end == 24:00) is a valid boundary and preserves interval alignment.
+    final snapEndMinute = _session!.snapStartDate.totalMinutes + _session!.snapDurationMin;
+    final snapWasSingleDay = snapEndMinute <= PlannerTimeMapper.minutesPerDay;
+    if (snapWasSingleDay) {
+      final endMinute = newStart.totalMinutes + newDuration;
+      if (endMinute > PlannerTimeMapper.minutesPerDay) {
+        newDuration = PlannerTimeMapper.minutesPerDay - newStart.totalMinutes;
+      }
+    }
+    // Enforce minimum slot duration.
+    final minDuration = widget.dayParam.slotSelectionParam.minSlotDurationMinutes;
+    if (newDuration < minDuration) newDuration = minDuration;
+
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
-      widget.onChanged(TimedSlotSelection(
+      final resultSlot = TimedSlotSelection(
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
         startDateTime: newStart,
         durationInMinutes: newDuration,
-      ));
+      );
+      widget.onChanged(resultSlot);
     }
   }
 
@@ -1498,35 +1508,53 @@ class InteractiveSlotState extends State<InteractiveSlot>
   ) {
     final slot = widget.slot;
     // Absolute end minute from day 0 midnight (not clamped to 1440).
-    final snapEndMinute =
-        (_snapStartDate.totalMinutes + _snapDurationMin).toDouble();
+    final snapEndMinute = (_session!.snapStartDate.totalMinutes + _session!.snapDurationMin).toDouble();
     final endY = mapper.minuteToYExtended(snapEndMinute);
     final currentMinute = minuteFromY(endY + localOffset.dy);
     final rawDelta = currentMinute - snapEndMinute;
     final minutesDeltaRounded = roundMins(rawDelta, round);
-    var newDuration = _snapDurationMin + minutesDeltaRounded;
-    // Cap duration based on configured maximum.
-    final maxDays = widget.dayParam.slotSelectionParam.maxMultiDayDuration;
-    if (maxDays != null) {
-      final maxMinutes = maxDays * PlannerTimeMapper.minutesPerDay;
-      if (newDuration > maxMinutes) newDuration = maxMinutes;
+    var newDuration = _session!.snapDurationMin + minutesDeltaRounded;
+    // Cap duration based on configured maximum column span.
+    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
+    if (maxColSpan != null) {
+      final maxMinutes = widget.dayParam.slotSelectionParam
+          .maxDurationForStartMinute(_session!.snapStartDate.totalMinutes);
+      // Never clamp below the snap duration — a slot that already
+      // exceeds the column-span limit (e.g. created programmatically)
+      // should not be forcibly shrunk when the handle is first grabbed.
+      final effectiveMax = max(maxMinutes!, _session!.snapDurationMin);
+      if (newDuration > effectiveMax) newDuration = effectiveMax;
     } else {
-      // Legacy: single-day cap.
-      final maxDuration =
-          PlannerTimeMapper.minutesPerDay - _snapStartDate.totalMinutes;
-      if (newDuration > maxDuration) newDuration = maxDuration;
+      final maxDuration = PlannerTimeMapper.minutesPerDay - _session!.snapStartDate.totalMinutes;
+      if (newDuration > maxDuration) {
+        newDuration = maxDuration;
+      }
     }
+    // ── Universal midnight guard (applies in both single-day and multi-day modes).
+    // If the snap was single-day, prevent the resize from pushing the end past
+    // midnight.  Midnight itself (end == 24:00) is a valid boundary.
+    final snapWasSingleDay = snapEndMinute <= PlannerTimeMapper.minutesPerDay;
+    if (snapWasSingleDay) {
+      final endMinute = _session!.snapStartDate.totalMinutes + newDuration;
+      if (endMinute > PlannerTimeMapper.minutesPerDay) {
+        newDuration = PlannerTimeMapper.minutesPerDay - _session!.snapStartDate.totalMinutes;
+      }
+    }
+    // Enforce minimum slot duration.
+    final minDuration = widget.dayParam.slotSelectionParam.minSlotDurationMinutes;
+    if (newDuration < minDuration) newDuration = minDuration;
+
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
-      widget.onChanged(TimedSlotSelection(
+      final resultSlot = TimedSlotSelection(
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
-        startDateTime: _snapStartDate,
+        startDateTime: _session!.snapStartDate,
         durationInMinutes: newDuration,
-      ));
+      );
+      widget.onChanged(resultSlot);
     }
   }
-} 
-
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // _MultiDayDragTarget — a narrow drag zone for a multi-day slot handle.
@@ -1543,24 +1571,20 @@ class _MultiDayDragTarget extends StatelessWidget {
 
   final double dragThreshold;
   final _DragMode dragMode;
-  final VoidCallback onDragStart;
+  final void Function(_DragMode? mode) onDragStart;
   final void Function(DragUpdateDetails) onDragUpdate;
   final VoidCallback onDragEnd;
 
   @override
   Widget build(BuildContext context) {
-    final state = context.findAncestorStateOfType<InteractiveSlotState>()!;
     return RawGestureDetector(
       behavior: HitTestBehavior.opaque,
       gestures: <Type, GestureRecognizerFactory>{
-        _SlotDragRecognizer:
-            GestureRecognizerFactoryWithHandlers<_SlotDragRecognizer>(
+        _SlotDragRecognizer: GestureRecognizerFactoryWithHandlers<_SlotDragRecognizer>(
           () => _SlotDragRecognizer(
             dragThreshold: dragThreshold,
-            onStart: () {
-              state._dragMode = dragMode;
-              onDragStart();
-            },
+            dragMode: dragMode,
+            onStart: onDragStart,
             onUpdate: onDragUpdate,
             onEnd: onDragEnd,
             onTap: () {},
@@ -1572,20 +1596,13 @@ class _MultiDayDragTarget extends StatelessWidget {
   }
 }
 
-
 // ═══════════════════════════════════════════════════════════════════════════
 // _SlotBody — filled rounded rectangle used as the default slot body.
 // Optionally shows text content via [child].
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _SlotBody extends StatelessWidget {
-  const _SlotBody({
-    required this.accent,
-    required this.borderRadius,
-    this.child,
-    this.hideTopBorder = false,
-    this.hideBottomBorder = false,
-  });
+  const _SlotBody({required this.accent, required this.borderRadius, this.child, this.hideTopBorder = false, this.hideBottomBorder = false});
 
   final Color accent;
   final double borderRadius;
@@ -1600,27 +1617,17 @@ class _SlotBody extends StatelessWidget {
     final none = BorderSide.none;
     // Conditionally suppress top / bottom edges for multi-day segments.
     final effectiveBorder = hideTopBorder || hideBottomBorder
-        ? Border(
-            left: side,
-            right: side,
-            top: hideTopBorder ? none : side,
-            bottom: hideBottomBorder ? none : side,
-          )
+        ? Border(left: side, right: side, top: hideTopBorder ? none : side, bottom: hideBottomBorder ? none : side)
         : Border.all(color: accent, width: 2);
     // Keep corners sharp where the adjacent border is hidden so the
     // segment looks continuous with its neighbour.
-    final topRadius =
-        hideTopBorder ? Radius.zero : Radius.circular(borderRadius);
-    final bottomRadius =
-        hideBottomBorder ? Radius.zero : Radius.circular(borderRadius);
+    final topRadius = hideTopBorder ? Radius.zero : Radius.circular(borderRadius);
+    final bottomRadius = hideBottomBorder ? Radius.zero : Radius.circular(borderRadius);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: fillColor,
         border: effectiveBorder,
-        borderRadius: BorderRadius.vertical(
-          top: topRadius,
-          bottom: bottomRadius,
-        ),
+        borderRadius: BorderRadius.vertical(top: topRadius, bottom: bottomRadius),
       ),
       child: child ?? const SizedBox.expand(),
     );

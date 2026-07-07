@@ -1002,6 +1002,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                   columnsParam: columnsParam,
                   heightPerMinute: mapper.heightPerMinute,
                   plannerTimeMapper: mapper,
+                  cellGapWidthPadding: cellGapWidthPadding,
                   verticalScrollController: mainVerticalController,
                   horizontalScrollController: mainHorizontalController,
                   viewportLeftInset: widget.textDirection == TextDirection.ltr
@@ -1011,11 +1012,13 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                       ? 0
                       : widget.timesIndicatorsParam.timesIndicatorsWidth,
                   onDragStart: () {
-                    setState(() => _isSlotDragging = true);
+                    _isSlotDragging = true;
                   },
-                  onDragEnd: () {
+                  onDragEnd: ({required bool isResize}) {
                     setState(() => _isSlotDragging = false);
-                    _reconcileAfterSlotDrag(slot.startDateTime);
+                    if (!isResize) {
+                      _reconcileAfterSlotDrag(slot.startDateTime);
+                    }
                   },
                   onChanged: (TimedSlotSelection? updatedSlot) {
                     _controller.slotSelectionNotifier.value = updatedSlot;
@@ -1089,11 +1092,13 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                     ? 0
                     : widget.timesIndicatorsParam.timesIndicatorsWidth,
                 onDragStart: () {
-                  setState(() => _isSlotDragging = true);
+                  _isSlotDragging = true;
                 },
-                onDragEnd: () {
+                onDragEnd: ({required bool isResize}) {
                   setState(() => _isSlotDragging = false);
-                  _reconcileAfterSlotDrag(slot.startDateTime);
+                  if (!isResize) {
+                    _reconcileAfterSlotDrag(slot.startDateTime);
+                  }
                 },
                 onChanged: (TimedSlotSelection? updatedSlot) {
                   _controller.slotSelectionNotifier.value = updatedSlot;
@@ -1133,7 +1138,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       todayColor: todayColor,
       timesIndicatorsWidth: widget.timesIndicatorsParam.timesIndicatorsWidth,
       onSlotDragStart: () {
-        setState(() => _isSlotDragging = true);
+        _isSlotDragging = true;
       },
       onSlotDragEnd: () {
         setState(() => _isSlotDragging = false);
@@ -1784,9 +1789,18 @@ class TimedSlotSelection extends SlotSelection {
   /// Number of calendar days spanned by this slot, always ≥ 1.
   /// For a slot starting at 6pm and ending at 7am the next day this
   /// returns 2.
+  /// Ending at exactly midnight (00:00) is treated as the end of the
+  /// current day, not the start of the next, so a slot ending at
+  /// midnight is still single-day.
   int get totalDaysSpanned {
     final end = endDateTime;
-    return end.withoutTime.difference(startDateTime.withoutTime).inDays + 1;
+    // If the end time is exactly midnight it belongs to the current
+    // day, not the next.  Subtract one day so that withoutTime
+    // comparison doesn't count it as an extra day.
+    final effectiveEnd = (end.hour == 0 && end.minute == 0 && end.second == 0 && end.millisecond == 0 && end.microsecond == 0)
+        ? end.subtract(const Duration(days: 1))
+        : end;
+    return effectiveEnd.withoutTime.difference(startDateTime.withoutTime).inDays + 1;
   }
 
   /// Converts this timed slot into an all-day slot.
@@ -2129,7 +2143,8 @@ class SlotSelectionParam {
     this.slotBorderRadius = 8.0,
     this.showDefaultSlotText = true,
     this.use24HourFormat = true,
-    this.maxMultiDayDuration,
+    this.maxColumnSpan,
+    this.minSlotDurationMinutes = 15,
   });
 
   /// enable interactive slot selection when tap on day slot
@@ -2223,15 +2238,34 @@ class SlotSelectionParam {
   /// Defaults to true (24-hour format).
   final bool use24HourFormat;
 
-  /// Maximum number of days a timed slot selection can span.
-  /// When set, the slot can extend across multiple days (e.g., 6pm Jan 1
-  /// through 7am Jan 2 = 2 days).  The drag and resize logic will cap
-  /// the slot's total duration to this many days' worth of minutes.
+  /// Maximum number of calendar-day columns a timed slot selection may
+  /// occupy.  Each column represents a full 24-hour day; the first and
+  /// last columns are partial when the slot starts/ends mid-day.
+  ///
+  /// For example, with [maxColumnSpan] = 3, a slot created at 10pm on
+  /// Jan 1 can extend through the full extent of Jan 3 (spanning three
+  /// columns).  The effective duration cap is start-time aware:
+  /// `(1440 − startMinute) + (maxColumnSpan − 1) × 1440` minutes.
   ///
   /// When null (the default), multi-day slots are not enabled and the
   /// slot is constrained to a single day (0–1440 minutes).  Set to a
   /// value 2 or greater to allow the slot to cross midnight boundaries.
-  final int? maxMultiDayDuration;
+  final int? maxColumnSpan;
+
+  /// Returns the maximum duration (in minutes) a slot starting at
+  /// [startMinuteOfDay] may have when [maxColumnSpan] is set.
+  ///
+  /// Returns null when [maxColumnSpan] is null (no multi-day cap).
+  int? maxDurationForStartMinute(int startMinuteOfDay) {
+    if (maxColumnSpan == null) return null;
+    return (PlannerTimeMapper.minutesPerDay - startMinuteOfDay) +
+        (maxColumnSpan! - 1) * PlannerTimeMapper.minutesPerDay;
+  }
+
+  /// Minimum duration in minutes for any interactive slot.  Resize
+  /// handles will never let the slot shrink below this value.
+  /// Defaults to 15 minutes.
+  final int minSlotDurationMinutes;
 }
 
 
