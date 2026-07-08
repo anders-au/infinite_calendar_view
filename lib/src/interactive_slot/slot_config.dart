@@ -20,6 +20,7 @@ class SlotInteractionConfig {
     this.showHandles = true,
     this.handleZoneSize = 20.0,
     this.dragThreshold = 6.0,
+    this.longPressDuration = const Duration(milliseconds: 300),
     this.accentColor,
     this.slotBorderRadius = 8.0,
     this.showDefaultSlotText = true,
@@ -84,6 +85,12 @@ class SlotInteractionConfig {
   /// Minimum pointer movement in logical pixels before a drag commits.
   /// Prevents accidental micro-drags.  Defaults to 6.0.
   final double dragThreshold;
+
+  /// Duration the user must hold before shift mode drag begins.
+  /// Quick flings/swipes shorter than this pass through to the scroll
+  /// views for calendar navigation.  Has no effect on resize handles.
+  /// Defaults to 300 ms (standard long-press).
+  final Duration longPressDuration;
 
   /// Accent colour for the slot border, fill, and handles.
   /// Falls back to the theme's secondary colour when null.

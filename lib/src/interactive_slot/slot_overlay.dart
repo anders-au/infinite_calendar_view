@@ -167,22 +167,32 @@ class _SlotOverlayState extends State<SlotOverlay> {
 
   /// Unified Row-based column layout for **all** timed slots (1..N days).
   ///
-  /// Each day column is a self-contained [SizedBox] → [Stack] with a
-  /// vertically-positioned [SegmentBody].  Because columns are laid out
-  /// by a [Row], there are no cross-day coordinate calculations — each
-  /// column's layout is independent and reliable.
+  /// **Two-layer architecture:**
+  /// - **Render layer** — visual elements (SegmentBody, handle pills).
+  ///   Uses the live [slot] values so the slot follows the finger reactively.
+  /// - **Gesture layer** — interactive zones (shift, resize handles).
+  ///   During a drag, uses the immutable [DragSession.anchor] so the
+  ///   widget tree never restructures and gesture state is preserved.
   ///
-  /// This single code path replaces the old single-day / multi-day split,
-  /// so the widget tree never restructures mid-drag.
+  /// This single code path replaces the old single-day / multi-day split.
   Widget _buildColumnLayout(CalendarSlot slot, Color accent, bool isDragging) {
     final scrollOffset = widget.scrollController?.hasClients == true
         ? widget.scrollController!.positions.first.pixels
         : 0.0;
 
-    final startDay = slot.startDateTime.withoutTime;
-    final startDayIndex =
-        startDay.difference(widget.initialDate.withoutTime).inDays;
-    final totalDays = slot.totalDaysSpanned;
+    // ── Render-layer values (reactive — follow the live slot) ─────
+    final rStartDay = slot.startDateTime.withoutTime;
+    final rStartDayIndex = rStartDay.difference(widget.initialDate.withoutTime).inDays;
+    final rStartMinute = slot.startDateTime.totalMinutes.toDouble();
+    final rEndMinuteAbs = (rStartMinute + slot.durationInMinutes).toDouble();
+    final rTotalDays = slot.totalDaysSpanned;
+
+    // ── Gesture-layer values (stable during drag) ─────────────────
+    final anchor = _session?.anchor;
+    final gTotalDays = anchor?.totalDaysSpanned ?? rTotalDays;
+    final gStartMinute = (anchor?.startDateTime.totalMinutes ?? rStartMinute).toDouble();
+    final gEndMinuteAbs = (gStartMinute + (anchor?.durationInMinutes ?? slot.durationInMinutes)).toDouble();
+
     final dayWidth = widget.dayWidth;
     final dayHeight = widget.timeMapper.totalDayHeight();
     final gapH = widget.timeMapper.cellGapHeight;
@@ -192,17 +202,14 @@ class _SlotOverlayState extends State<SlotOverlay> {
     // Left/right padding so every column's segment matches colWidth.
     final segPadL = pad + widget.columnPositions[0];
     final segPadR = pad + paddedWidth - widget.columnPositions[1];
-
-    final startMinute = slot.startDateTime.totalMinutes.toDouble();
-    final endMinuteAbs = (startMinute + slot.durationInMinutes).toDouble();
     final zoneSize = widget.config.handleZoneSize;
 
-    // ── Build day columns ─────────────────────────────────────────
+    // ── Build day columns (RENDER layer — uses live slot) ────────
     final List<Widget> columns = [];
 
-    for (int d = 0; d < totalDays; d++) {
+    for (int d = 0; d < rTotalDays; d++) {
       final isFirst = d == 0;
-      final isLast = d == totalDays - 1;
+      final isLast = d == rTotalDays - 1;
 
       final colKey = isFirst && isLast ? 'singleSlotColumn'
           : isFirst ? 'startSlotColumn'
@@ -213,18 +220,18 @@ class _SlotOverlayState extends State<SlotOverlay> {
       final double segHeight;
 
       if (isFirst && isLast) {
-        segTop = widget.timeMapper.minuteToY(startMinute);
-        double raw = widget.timeMapper.minuteToY(endMinuteAbs);
-        if (gapH > 0 && endMinuteAbs > 0 &&
-            endMinuteAbs < PlannerTimeMapper.minutesPerDay &&
-            endMinuteAbs % PlannerTimeMapper.minutesPerHour == 0) raw -= gapH;
+        segTop = widget.timeMapper.minuteToY(rStartMinute);
+        double raw = widget.timeMapper.minuteToY(rEndMinuteAbs);
+        if (gapH > 0 && rEndMinuteAbs > 0 &&
+            rEndMinuteAbs < PlannerTimeMapper.minutesPerDay &&
+            rEndMinuteAbs % PlannerTimeMapper.minutesPerHour == 0) raw -= gapH;
         segHeight = (raw - segTop).clamp(0.0, dayHeight);
       } else if (isFirst) {
-        segTop = widget.timeMapper.minuteToY(startMinute);
+        segTop = widget.timeMapper.minuteToY(rStartMinute);
         segHeight = (dayHeight - segTop).clamp(0.0, dayHeight);
       } else if (isLast) {
-        final intra = endMinuteAbs -
-            (totalDays - 1) * PlannerTimeMapper.minutesPerDay;
+        final intra = rEndMinuteAbs -
+            (rTotalDays - 1) * PlannerTimeMapper.minutesPerDay;
         double raw = widget.timeMapper.minuteToY(intra);
         if (gapH > 0 && intra > 0 &&
             intra < PlannerTimeMapper.minutesPerDay &&
@@ -236,10 +243,9 @@ class _SlotOverlayState extends State<SlotOverlay> {
         segHeight = dayHeight;
       }
 
-      // ── Build column children (bottom → top) ──────────────────
+      // ── Build column children (visual only, ignore pointer) ──
       final List<Widget> colChildren = [];
 
-      // Layer 1: segment body (visual).
       if (segHeight > 0) {
         colChildren.add(Positioned(
           top: segTop,
@@ -263,52 +269,89 @@ class _SlotOverlayState extends State<SlotOverlay> {
         ));
       }
 
-      // Layer 2: shift zone (full segment — handles take priority above).
-      if (segHeight > 0 && widget.config.enableShift) {
-        colChildren.add(Positioned(
-          top: segTop,
-          left: segPadL,
-          right: segPadR,
-          height: segHeight,
-          child: SlotHandleZone(
-            key: ValueKey('shiftZone$colKey'),
-            dragMode: DragMode.shift,
-            config: widget.config,
-            onDragStart: (m) => _onDragStart(m),
-            onDragUpdate: _onDragUpdate,
-            onDragEnd: _onDragEnd,
-            onTap: () => widget.config.onTap?.call(slot),
-          ),
-        ));
-      }
-
-      // Handles are built AFTER the loop in the outer Stack so they
-      // survive column count changes — their parent never changes.
-
       columns.add(
-        SizedBox(
-          key: ValueKey(colKey),
-          width: dayWidth,
-          child: Stack(clipBehavior: Clip.none, children: colChildren),
+        IgnorePointer(
+          child: SizedBox(
+            key: ValueKey(colKey),
+            width: dayWidth,
+            child: Stack(clipBehavior: Clip.none, children: colChildren),
+          ),
         ),
       );
     }
 
     if (columns.isEmpty) return const SizedBox.shrink();
 
-    // ── Viewport position ─────────────────────────────────────────
-    final viewportX = startDayIndex * dayWidth - scrollOffset;
+    // ── Viewport position (reactive — follows live slot) ──────────
+    final viewportX = rStartDayIndex * dayWidth - scrollOffset;
     final left = viewportX;
-    final totalWidth = totalDays * dayWidth;
+    final totalWidth = rTotalDays * dayWidth;
 
-    // ── Build handles in the outer Stack (stable parent) ──────────
+    // ── Build outer Stack children ────────────────────────────────
     final List<Widget> outerChildren = [];
-    outerChildren.add(Row(crossAxisAlignment: CrossAxisAlignment.stretch,
-         textDirection: TextDirection.ltr, children: columns));
+    // Visual columns — wrapped in IgnorePointer so they never absorb
+    // hit tests.  Only the interactive zones below receive events.
+    outerChildren.add(IgnorePointer(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch,
+         textDirection: TextDirection.ltr, children: columns)));
 
-    // Start handle — always at column 0.
-    if (widget.config.enableExtendStart && totalDays > 0) {
-      final topY = widget.timeMapper.minuteToY(startMinute);
+    // ── Shift zones (GESTURE layer — stable during drag) ─────────
+    // Uses anchor values so the widget tree never restructures.
+    if (widget.config.enableShift) {
+      for (int d = 0; d < gTotalDays; d++) {
+        final gIsFirst = d == 0;
+        final gIsLast = d == gTotalDays - 1;
+
+        final double gSegTop;
+        final double gSegHeight;
+
+        if (gIsFirst && gIsLast) {
+          gSegTop = widget.timeMapper.minuteToY(gStartMinute);
+          double raw = widget.timeMapper.minuteToY(gEndMinuteAbs);
+          if (gapH > 0 && gEndMinuteAbs > 0 &&
+              gEndMinuteAbs < PlannerTimeMapper.minutesPerDay &&
+              gEndMinuteAbs % PlannerTimeMapper.minutesPerHour == 0) raw -= gapH;
+          gSegHeight = (raw - gSegTop).clamp(0.0, dayHeight);
+        } else if (gIsFirst) {
+          gSegTop = widget.timeMapper.minuteToY(gStartMinute);
+          gSegHeight = (dayHeight - gSegTop).clamp(0.0, dayHeight);
+        } else if (gIsLast) {
+          final intra = gEndMinuteAbs -
+              (gTotalDays - 1) * PlannerTimeMapper.minutesPerDay;
+          double raw = widget.timeMapper.minuteToY(intra);
+          if (gapH > 0 && intra > 0 &&
+              intra < PlannerTimeMapper.minutesPerDay &&
+              intra % PlannerTimeMapper.minutesPerHour == 0) raw -= gapH;
+          gSegTop = 0;
+          gSegHeight = raw.clamp(0.0, dayHeight);
+        } else {
+          gSegTop = 0;
+          gSegHeight = dayHeight;
+        }
+
+        if (gSegHeight > 0) {
+          outerChildren.add(Positioned(
+            left: d * dayWidth + segPadL,
+            top: gSegTop,
+            width: colWidth,
+            height: gSegHeight,
+            child: SlotHandleZone(
+              key: ValueKey('shiftZone$d'),
+              dragMode: DragMode.shift,
+              config: widget.config,
+              onDragStart: (m) => _onDragStart(m),
+              onDragUpdate: _onDragUpdate,
+              onDragEnd: _onDragEnd,
+              onTap: () => widget.config.onTap?.call(slot),
+            ),
+          ));
+        }
+      }
+    }
+
+    // Start handle — always at column 0 (reactive position).
+    if (widget.config.enableExtendStart && rTotalDays > 0) {
+      final topY = widget.timeMapper.minuteToY(rStartMinute);
       outerChildren.add(Positioned(
         left: segPadL, top: topY, width: colWidth, height: zoneSize,
         child: SlotHandleZone(
@@ -326,14 +369,14 @@ class _SlotOverlayState extends State<SlotOverlay> {
       }
     }
 
-    // End handle — always at the last column.
-    if (widget.config.enableExtendEnd && totalDays > 0) {
-      final intra = endMinuteAbs - (totalDays - 1) * PlannerTimeMapper.minutesPerDay;
+    // End handle — always at the last column (reactive position).
+    if (widget.config.enableExtendEnd && rTotalDays > 0) {
+      final intra = rEndMinuteAbs - (rTotalDays - 1) * PlannerTimeMapper.minutesPerDay;
       double raw = widget.timeMapper.minuteToY(intra);
       if (gapH > 0 && intra > 0 && intra < PlannerTimeMapper.minutesPerDay &&
           intra % PlannerTimeMapper.minutesPerHour == 0) raw -= gapH;
       final endY = raw.clamp(0.0, dayHeight);
-      final endL = (totalDays - 1) * dayWidth + segPadL;
+      final endL = (rTotalDays - 1) * dayWidth + segPadL;
       outerChildren.add(Positioned(
         left: endL, top: endY - zoneSize, width: colWidth, height: zoneSize,
         child: SlotHandleZone(
