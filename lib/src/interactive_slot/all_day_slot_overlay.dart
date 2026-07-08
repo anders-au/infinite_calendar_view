@@ -207,7 +207,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
         ),
 
         // ── left handle (extend start) ─────────────────────────
-        if (widget.config.enableExtendStart)
+        if (widget.config.enableResize && widget.config.enableExtendStart)
           Positioned(
             left: 0,
             top: 0,
@@ -223,7 +223,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
           ),
 
         // ── right handle (extend end) ──────────────────────────
-        if (widget.config.enableExtendEnd)
+        if (widget.config.enableResize && widget.config.enableExtendEnd)
           Positioned(
             right: 0,
             top: 0,
@@ -239,7 +239,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
           ),
 
         // ── handle pills ───────────────────────────────────────
-        if (widget.config.showHandles && widget.config.enableExtendStart)
+        if (widget.config.enableResize && widget.config.showHandles && widget.config.enableExtendStart)
           Positioned(
             left: 6,
             top: 6,
@@ -258,7 +258,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
             ),
           ),),
 
-        if (widget.config.showHandles && widget.config.enableExtendEnd)
+        if (widget.config.enableResize && widget.config.showHandles && widget.config.enableExtendEnd)
           Positioned(
             right: 6,
             top: 6,

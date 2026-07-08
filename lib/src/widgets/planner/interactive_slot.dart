@@ -198,13 +198,13 @@ class InteractiveSlot extends StatefulWidget {
   /// they do not bleed into the gap between day columns.
   final double cellGapWidthPadding;
 
-  final TimedSlotSelection slot;
+  final CalendarSlot slot;
   final double dayWidth;
   final DayParam dayParam;
   final ColumnsParam columnsParam;
   final double heightPerMinute;
   final PlannerTimeMapper? plannerTimeMapper;
-  final void Function(TimedSlotSelection? updatedSlot) onChanged;
+  final void Function(CalendarSlot? updatedSlot) onChanged;
 
   /// When set, the planner's vertical scroll controller — used for
   /// edge-triggered auto-scrolling while dragging or resizing the slot.
@@ -309,7 +309,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final param = widget.dayParam.slotSelectionParam;
+    final param = widget.dayParam.slotInteractionConfig;
     final accent = param.accentColor ?? theme.colorScheme.secondary;
     final borderRadius = param.slotBorderRadius;
     final slot = widget.slot;
@@ -340,8 +340,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // The body uses a long-press gesture (shift via long-press+drag)
     // so quick flings pass through to the calendar scroll views.
     // Resize handles use immediate drag (_SlotDragRecognizer).
-    final canDrag = param.canDragSlotSelectionAfterShow;
-    final hasResize = param.enableSlotSelectionResize;
+    final canDrag = param.enableShift;
+    final hasResize = param.enableResize;
     final zoneSize = param.handleZoneSize;
     return MouseRegion(
       cursor: _effectiveCursor,
@@ -366,16 +366,16 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
               Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => param.onSlotSelectionTap?.call(slot),
+                  onTap: () => param.onTap?.call(slot),
                   onLongPressStart: canDrag ? _onLongPressStart : null,
                   onLongPressMoveUpdate: canDrag ? _onLongPressMoveUpdate : null,
                   onLongPressEnd: canDrag ? (_) => _onLongPressEnd() : null,
-                  child: param.slotSelectionContentBuilder?.call(slot) ?? _buildDefaultContent(theme, accent, borderRadius),
+                  child: param.slotContentBuilder?.call(slot) ?? _buildDefaultContent(theme, accent, borderRadius),
                 ),
               ),
 
               // ── Layer 1: top resize handle (immediate drag) ──────
-              if (hasResize && canDrag)
+              if (hasResize)
                 Positioned(
                   top: 0, left: 0, right: 0, height: zoneSize,
                   child: Builder(
@@ -399,7 +399,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
                 ),
 
               // ── Layer 2: bottom resize handle (immediate drag) ───
-              if (hasResize && canDrag)
+              if (hasResize)
                 Positioned(
                   bottom: 0, left: 0, right: 0, height: zoneSize,
                   child: Builder(
@@ -424,9 +424,9 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
 
               // ── Layer 3: handle indicators (visual only) ────────
               if (hasResize && param.showHandles)
-                param.slotSelectionTopHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: true),
+                param.topHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: true),
               if (hasResize && param.showHandles)
-                param.slotSelectionBottomHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: false),
+                param.bottomHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: false),
             ],
           ),
         ),
@@ -466,10 +466,10 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
   /// drag recognizers.
   List<Widget> _buildMultiDayBody(ThemeData theme, Color accent, double borderRadius) {
     final mapper = widget.timeMapper;
-    final param = widget.dayParam.slotSelectionParam;
+    final param = widget.dayParam.slotInteractionConfig;
     final slot = widget.slot;
-    final canDrag = param.canDragSlotSelectionAfterShow;
-    final hasResize = param.enableSlotSelectionResize;
+    final canDrag = param.enableShift;
+    final hasResize = param.enableResize;
     final zoneSize = param.handleZoneSize;
     final handlesVisible = hasResize && param.showHandles;
     // ── Compute positions continuously during drag ──────────────────
@@ -630,7 +630,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // ── 3. Drag-target overlays (ACTIVE hit testing) ─────────────
     // Only these participate in the gesture arena; they are small
     // strips at the centre of each handle zone.
-    if (canDrag && hasResize) {
+    if (hasResize) {
       final double dragWidth = 40.0;
       final double dragLeft = (colWidth - dragWidth) / 2;
 
@@ -731,12 +731,12 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
   Widget _buildMultiDaySegmentContent({
     required ThemeData theme,
     required Color accent,
-    required TimedSlotSelection slot,
+    required CalendarSlot slot,
     required int segmentIndex,
     required int totalDays,
     required bool handlesVisible,
   }) {
-    final use24Hour = widget.dayParam.slotSelectionParam.use24HourFormat;
+    final use24Hour = widget.dayParam.slotInteractionConfig.use24HourFormat;
 
     String formatTime(DateTime dt) {
       final hour = dt.hour;
@@ -849,7 +849,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
   static const double _narrowWidthThreshold = 80.0;
 
   Widget _buildDefaultContent(ThemeData theme, Color accent, double borderRadius) {
-    final param = widget.dayParam.slotSelectionParam;
+    final param = widget.dayParam.slotInteractionConfig;
     final slot = widget.slot;
 
     // ── compute slot pixel height ──────────────────────────────────────
@@ -888,7 +888,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     final isCompact = slotHeight < _fullTextHeight;
 
     // ── extra padding to avoid overlapping handle indicators ───────────
-    final handlesVisible = param.enableSlotSelectionResize && param.showHandles;
+    final handlesVisible = param.enableResize && param.showHandles;
 
     return _SlotBody(
       accent: accent,
@@ -995,12 +995,12 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     final slot = widget.slot;
     final isMultiDay = slot.totalDaysSpanned > 1;
 
-    if (!widget.dayParam.slotSelectionParam.enableSlotSelectionResize) {
+    if (!widget.dayParam.slotInteractionConfig.enableResize) {
       _updateCursor(SystemMouseCursors.grab);
       return;
     }
 
-    final zoneSize = widget.dayParam.slotSelectionParam.handleZoneSize;
+    final zoneSize = widget.dayParam.slotInteractionConfig.handleZoneSize;
     final mapper = widget.timeMapper;
     final dayHeight = mapper.totalDayHeight();
     final dayWidth = widget.dayWidth;
@@ -1117,7 +1117,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         _effectiveCursor = mode == _DragMode.shift ? SystemMouseCursors.grabbing : SystemMouseCursors.resizeUpDown;
       });
 
-      widget.dayParam.slotSelectionParam.onSlotSelectionLongPress?.call(slot);
+      widget.dayParam.slotInteractionConfig.onLongPress?.call(slot);
     }
 
     if (debugAutoScroll) {
@@ -1472,8 +1472,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
 
   void _applyDrag(Offset localOffset) {
     final mapper = widget.timeMapper;
-    final param = widget.dayParam.slotSelectionParam;
-    final round = param.dragIncrementMinutes?.call(widget.slot.columnIndex, widget.slot.startDateTime) ?? widget.dayParam.onSlotMinutesRound;
+    final param = widget.dayParam.slotInteractionConfig;
+    final round = param.stepMinutesResolver?.call(widget.slot.columnIndex, widget.slot.startDateTime) ?? widget.dayParam.onSlotMinutesRound;
     final alwaysBefore = widget.dayParam.onSlotRoundAlwaysBefore;
 
     int roundMins(double value, int step) {
@@ -1511,18 +1511,18 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // freely move across midnight.
     final newStart = targetMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
     // Only clamp if multi-day is NOT enabled and the slot would cross midnight.
-    final maxDuration = widget.dayParam.slotSelectionParam.maxDurationMinutes;
+    final maxDuration = widget.dayParam.slotInteractionConfig.maxDurationMinutes;
     if (maxDuration == null) {
       final maxStartMinute = PlannerTimeMapper.minutesPerDay - _session!.snapDurationMin;
       final effectiveMinutes = newStart.difference(targetMidnight).inMinutes;
       final clampedMinute = effectiveMinutes.clamp(0, maxStartMinute);
       if (clampedMinute != effectiveMinutes) {
         final clampedStart = targetMidnight.add(Duration(minutes: clampedMinute));
-        final resultSlot = TimedSlotSelection(
+        final resultSlot = CalendarSlot(
           columnIndex: slot.columnIndex,
           initialStartDate: slot.initialStartDate,
           startDateTime: clampedStart,
-          durationInMinutes: _session!.snapDurationMin,
+          endDateTime: clampedStart.add(Duration(minutes: _session!.snapDurationMin)),
         );
         widget.onChanged(resultSlot);
         return;
@@ -1541,11 +1541,11 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
             'safeStartMinute=$safeStartMinute '
             'targetMidnight=${targetMidnight.toIso8601String()}');
       }
-      final resultSlot = TimedSlotSelection(
+      final resultSlot = CalendarSlot(
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
         startDateTime: safeStart,
-        durationInMinutes: _session!.snapDurationMin,
+        endDateTime: safeStart.add(Duration(minutes: _session!.snapDurationMin)),
       );
       widget.onChanged(resultSlot);
       return;
@@ -1557,11 +1557,11 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           'daysDelta=$daysDelta '
           'snapDurationMin=${_session!.snapDurationMin}');
     }
-    final resultSlot = TimedSlotSelection(
+    final resultSlot = CalendarSlot(
       columnIndex: slot.columnIndex,
       initialStartDate: slot.initialStartDate,
       startDateTime: newStart,
-      durationInMinutes: _session!.snapDurationMin,
+      endDateTime: newStart.add(Duration(minutes: _session!.snapDurationMin)),
     );
     widget.onChanged(resultSlot);
   }
@@ -1578,10 +1578,10 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // DateTime.add naturally handles negative minute values (previous day).
     final newStart = snapMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
     var newDuration = _session!.snapEndDate.difference(newStart).inMinutes;
-    final maxDuration = widget.dayParam.slotSelectionParam.maxDurationMinutes;
+    final maxDuration = widget.dayParam.slotInteractionConfig.maxDurationMinutes;
     if (maxDuration != null) {
-      final maxMinutes = widget.dayParam.slotSelectionParam
-          .maxDurationForStartMinute(newStart.totalMinutes);
+      final maxMinutes = widget.dayParam.slotInteractionConfig
+          .maxDurationMinutes;
       // Never clamp below the snap duration — a slot that already
       // exceeds the column-span limit (e.g. created programmatically)
       // should not be forcibly shrunk when the handle is first grabbed.
@@ -1615,15 +1615,15 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           'localOffset.dy=${localOffset.dy.toStringAsFixed(1)}');
     }
     // Enforce minimum slot duration.
-    final minDuration = widget.dayParam.slotSelectionParam.minDurationMinutes;
+    final minDuration = widget.dayParam.slotInteractionConfig.minDurationMinutes;
     if (newDuration < minDuration) newDuration = minDuration;
 
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
-      final resultSlot = TimedSlotSelection(
+      final resultSlot = CalendarSlot(
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
         startDateTime: newStart,
-        durationInMinutes: newDuration,
+        endDateTime: newStart.add(Duration(minutes: newDuration)),
       );
       widget.onChanged(resultSlot);
     }
@@ -1642,10 +1642,10 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
     var newDuration = _session!.snapDurationMin + minutesDeltaRounded;
     // Cap duration based on configured maximum duration.
-    final maxDuration = widget.dayParam.slotSelectionParam.maxDurationMinutes;
+    final maxDuration = widget.dayParam.slotInteractionConfig.maxDurationMinutes;
     if (maxDuration != null) {
-      final maxMinutes = widget.dayParam.slotSelectionParam
-          .maxDurationForStartMinute(_session!.snapStartDate.totalMinutes);
+      final maxMinutes = widget.dayParam.slotInteractionConfig
+          .maxDurationMinutes;
       // Never clamp below the snap duration — a slot that already
       // exceeds the column-span limit (e.g. created programmatically)
       // should not be forcibly shrunk when the handle is first grabbed.
@@ -1678,15 +1678,15 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           'slotDuration=${slot.durationInMinutes}');
     }
     // Enforce minimum slot duration.
-    final minDuration = widget.dayParam.slotSelectionParam.minDurationMinutes;
+    final minDuration = widget.dayParam.slotInteractionConfig.minDurationMinutes;
     if (newDuration < minDuration) newDuration = minDuration;
 
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
-      final resultSlot = TimedSlotSelection(
+      final resultSlot = CalendarSlot(
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
         startDateTime: _session!.snapStartDate,
-        durationInMinutes: newDuration,
+        endDateTime: _session!.snapStartDate.add(Duration(minutes: newDuration)),
       );
       widget.onChanged(resultSlot);
     }

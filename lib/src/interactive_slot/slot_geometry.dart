@@ -181,12 +181,12 @@ class SlotGeometry {
     final zoneSize = config.handleZoneSize;
 
     // When zones overlap (very short slot), pick the closest edge.
-    if (config.enableExtendStart && distToTop <= zoneSize) {
+    if (config.enableResize && config.enableExtendStart && distToTop <= zoneSize) {
       if (!config.enableExtendEnd || distToTop <= distToBottom) {
         return DragMode.extendStart;
       }
     }
-    if (config.enableExtendEnd && distToBottom <= zoneSize) {
+    if (config.enableResize && config.enableExtendEnd && distToBottom <= zoneSize) {
       return DragMode.extendEnd;
     }
     if (config.enableShift) {

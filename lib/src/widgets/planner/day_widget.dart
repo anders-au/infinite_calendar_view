@@ -12,6 +12,7 @@ import '../../painters/events_painters.dart';
 import '../../utils/extension.dart';
 import '../../utils/planner_time_mapper.dart';
 import '../../interactive_slot/slot_controller.dart';
+import '../../interactive_slot/slot_selection.dart';
 
 class DayWidget extends StatelessWidget {
   const DayWidget({
@@ -100,23 +101,24 @@ class DayWidget extends StatelessWidget {
         onDoubleTapDown: (details) => onSlotEvent(width, details.localPosition.dx, details.localPosition.dy, false, true, false),
         onLongPressStart: (details) => onSlotEvent(width, details.localPosition.dx, details.localPosition.dy, false, false, true),
         onLongPressMoveUpdate: (details) {
-          if (dayParam.slotSelectionParam.enableLongPressSlotSelection) {
+          if (dayParam.slotInteractionConfig.enableLongPressSlotSelection &&
+              dayParam.slotInteractionConfig.enableShift) {
             var slotSelection = controller.slotSelectionNotifier.value;
-            if (slotSelection is! TimedSlotSelection) return;
+            if (slotSelection == null || slotSelection.isAllDay) return;
             {
               final initialMinute = slotSelection.initialStartDate.totalMinutes.toDouble();
               final initialY = mapper.minuteToY(initialMinute);
               // Use extended mapping when multi-day is enabled so the
               // dragged start can cross midnight boundaries.
               final maxDuration =
-                  dayParam.slotSelectionParam.maxDurationMinutes;
+                  dayParam.slotInteractionConfig.maxDurationMinutes;
               final currentMinute = maxDuration != null
                   ? mapper.yToMinuteExtended(initialY +
                       details.localOffsetFromOrigin.dy)
                   : mapper.yToMinute(
                       initialY + details.localOffsetFromOrigin.dy);
               final minutesDelta = currentMinute - initialMinute;
-              final dragInc = dayParam.slotSelectionParam.dragIncrementMinutes?.call(
+              final dragInc = dayParam.slotInteractionConfig.stepMinutesResolver?.call(
                     slotSelection.columnIndex,
                     slotSelection.startDateTime,
                   ) ??
@@ -126,11 +128,11 @@ class DayWidget extends StatelessWidget {
                   : dragInc * (minutesDelta / dragInc).round();
               final daysDelta = (details.localOffsetFromOrigin.dx / dayWidth).round();
               final newStart = slotSelection.initialStartDate.addCalendarDays(daysDelta).add(Duration(minutes: minutesDeltaRound));
-              controller.slotSelectionNotifier.value = TimedSlotSelection(
+              controller.slotSelectionNotifier.value = CalendarSlot(
                 columnIndex: slotSelection.columnIndex,
                 initialStartDate: slotSelection.initialStartDate,
                 startDateTime: newStart,
-                durationInMinutes: slotSelection.durationInMinutes,
+                endDateTime: newStart.add(Duration(minutes: slotSelection.durationInMinutes)),
               );
 
               // ── auto-scroll during long-press drag ──────────────────
@@ -277,27 +279,26 @@ class DayWidget extends StatelessWidget {
             : dayParam.onSlotLongTap;
     eventFunction?.call(column, exactDate, roundDate);
 
-    var slotSelectionParam = dayParam.slotSelectionParam;
+    var slotInteractionConfig = dayParam.slotInteractionConfig;
 
     // reset slot selection
-    if (controller.slotSelectionNotifier.value != null && slotSelectionParam.clearWhenBackgroundTap) {
+    if (controller.slotSelectionNotifier.value != null && slotInteractionConfig.clearWhenBackgroundTap) {
       controller.slotSelectionNotifier.value = null;
-      slotSelectionParam.onSlotSelectionChange?.call(null);
+      slotInteractionConfig.onChanged?.call(null);
     }
     // init slot selection
-    else if ((tap && slotSelectionParam.enableTapSlotSelection) ||
-        (doubleTap && slotSelectionParam.enableDoubleTapSlotSelection) ||
-        (longPress && slotSelectionParam.enableLongPressSlotSelection)) {
+    else if ((tap && slotInteractionConfig.enableTapSlotSelection) ||
+        (doubleTap && slotInteractionConfig.enableDoubleTapSlotSelection) ||
+        (longPress && slotInteractionConfig.enableLongPressSlotSelection)) {
       int duration =
-          slotSelectionParam.slotSelectionDefaultDurationInMinutes?.call(column, roundDate) ?? DayParam.defaultSlotSelectionDurationInMinutes;
-      final slot = TimedSlotSelection(
+          slotInteractionConfig.defaultDurationMinutes?.call(column, roundDate) ?? DayParam.defaultSlotDurationMinutes;
+      final slot = CalendarSlot.fromTap(
         columnIndex: column,
-        initialStartDate: roundDate,
         startDateTime: roundDate,
-        durationInMinutes: duration,
+        durationMinutes: duration,
       );
       controller.slotSelectionNotifier.value = slot;
-      slotSelectionParam.onSlotSelectionChange?.call(slot);
+      slotInteractionConfig.onChanged?.call(slot);
     }
   }
 

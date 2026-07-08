@@ -29,10 +29,10 @@ class PlannerEventsDrag extends StatelessWidget {
         dayEventBuilder: (event, height, width, heightPerMinute) {
           return draggableEvent(context, event, height, width);
         },
-        slotSelectionParam: SlotSelectionParam(
+        slotInteractionConfig: SlotInteractionConfig(
           enableTapSlotSelection: true,
           enableLongPressSlotSelection: true,
-          onSlotSelectionTap: (slot) => showSnack(
+          onTap: (slot) => showSnack(
               context,
               slot.startDateTime.toString() +
                   " : " +

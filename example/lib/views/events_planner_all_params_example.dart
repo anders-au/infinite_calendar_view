@@ -88,14 +88,14 @@ class EventsPlannerAllParamView extends StatelessWidget {
           isToday: isToday,
           lineColor: Colors.black12,
         ),
-        slotSelectionParam: SlotSelectionParam(
+        slotInteractionConfig: SlotInteractionConfig(
           enableTapSlotSelection: true,
           enableLongPressSlotSelection: true,
           enableDoubleTapSlotSelection: true,
           clearWhenBackgroundTap: true,
-          slotSelectionDefaultDurationInMinutes: (columnIndex, date) => 60,
-          onSlotSelectionChange: (slot) {},
-          onSlotSelectionTap: (slot) => showSnack(
+          defaultDurationMinutes: (columnIndex, date) => 60,
+          onChanged: (slot) {},
+          onTap: (slot) => showSnack(
               context,
               slot.startDateTime.toString() +
                   " : " +

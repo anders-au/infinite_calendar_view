@@ -267,7 +267,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   var _isKeyboardZoomActive = false;
   var _startColumnIndex = 0;
   Drag? _headerHorizontalDrag;
-  VoidCallback? _slotSelectionListener;
   bool _isSlotDragging = false;
 
   /// Public notifier that emits the current [DragMode] while a slot is
@@ -287,10 +286,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   /// ```
   final ValueNotifier<DragMode?> slotDragModeNotifier = ValueNotifier<DragMode?>(null);
   final Object _plannerViewControllerOwner = Object();
-
-  /// Notifier for the new [CalendarSlot] system.  Only used when
-  /// [EventsPlanner.useSlotSystem] is true.
-  final ValueNotifier<CalendarSlot?> _calendarSlotNotifier = ValueNotifier<CalendarSlot?>(null);
 
   PlannerTimeMapper get plannerTimeMapper =>
       PlannerTimeMapper(heightPerMinute: heightPerMinute, cellGapHeight: widget.cellGapHeight, paintGapAfterLastHour: widget.paintGapAfterLastHour);
@@ -324,20 +319,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       };
       mainHorizontalController.addListener(_syncHorizontalControllersListener!);
     }
-
-    // ── Listen for slot dismissal to keep focused day in sync ──────────
-    _slotSelectionListener = () {
-      final val = _controller.slotSelectionNotifier.value;
-      if (val == null && !_isSlotDragging) {
-        _syncCurrentDayFromScroll();
-      }
-    };
-    _controller.slotSelectionNotifier.addListener(_slotSelectionListener!);
-
-    // ── Sync old → new slot model ───────────────────────────────────────
-    _controller.slotSelectionNotifier.addListener(_syncToSlotModel);
-    // Initial sync in case a slot was already set.
-    _syncToSlotModel();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // index calculation and first day showed
@@ -421,11 +402,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _headerHorizontalDrag?.cancel();
     _headerHorizontalDrag = null;
 
-    if (_slotSelectionListener != null) {
-      _controller.slotSelectionNotifier.removeListener(_slotSelectionListener!);
-      _slotSelectionListener = null;
-    }
-    _controller.slotSelectionNotifier.removeListener(_syncToSlotModel);
     if (_syncHorizontalControllersListener != null) {
       mainHorizontalController.removeListener(_syncHorizontalControllersListener!);
     }
@@ -455,13 +431,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
     _plannerViewController.detach(owner: _plannerViewControllerOwner);
     topLeftCellValueNotifier.dispose();
-    _calendarSlotNotifier.dispose();
     slotDragModeNotifier.dispose();
 
     super.dispose();
   }
-
-  /// listen mainHorizontalController and call onFirstDayChange when day change
+// listen mainHorizontalController and call onFirstDayChange when day change
   void initDayChangingListener() {
     var halfDayWidth = (dayWidth / 2);
     var scroll = mainHorizontalController;
@@ -490,36 +464,54 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   /// call onAutomaticAdjustHorizontalScroll when end adjust
   VoidCallback getAutomaticScrollAdjustListener() {
     return () {
-      // when scroll stopped
-      var scroll = mainHorizontalController;
-      var stopScroll = !scroll.position.isScrollingNotifier.value;
-      if (_listenHorizontalScrollDayChange && stopScroll && !_isSlotDragging && _plannerPointerDownCount == 0) {
-        final useWeekSnap = widget.snapToWeekStart && widget.daysShowed == 7;
+      final scroll = mainHorizontalController;
+      // Only act when the scroll *appears* to have stopped.
+      if (!_listenHorizontalScrollDayChange || scroll.position.isScrollingNotifier.value) return;
+      if (_isSlotDragging || _plannerPointerDownCount > 0) return;
 
-        double nearestDayOffset;
-        if (useWeekSnap) {
-          nearestDayOffset = _snapToNearestWeekOffset(scroll.offset);
-        } else if (widget.snapToDaysShowed) {
-          // Snap to bracket boundary (multiple of daysShowed).
-          final pageIndex = (scroll.offset / (dayWidth * widget.daysShowed)).round();
-          nearestDayOffset = pageIndex * dayWidth * widget.daysShowed;
-        } else {
-          // Round to nearest day
-          nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
-        }
-
-        if (nearestDayOffset != scroll.offset) {
-          // adjust scroll
-          Future.delayed(const Duration(milliseconds: 1), () {
-            scroll.animateTo(nearestDayOffset, duration: const Duration(milliseconds: 200), curve: Curves.easeIn);
-
-            // event
-            var adjustedDay = getDayFromIndex((nearestDayOffset / dayWidth).toInt());
-            widget.onAutomaticAdjustHorizontalScroll?.call(adjustedDay);
-          });
-        }
-      }
+      // When a drag ends the notifier briefly flips to false before
+      // goBallistic starts the spring simulation.  Defer by one
+      // microtask so we can detect whether the physics took over.
+      Future.microtask(() => _performPostDragSnapIfNeeded());
     };
+  }
+
+  /// Called one microtask after [isScrollingNotifier] reports that
+  /// scrolling has stopped.  If a ballistic simulation has started in
+  /// the meantime the physics will handle snapping as a single motion;
+  /// we bail out.  Otherwise (truly settled scroll) we animate to the
+  /// nearest boundary and fire [onAutomaticAdjustHorizontalScroll].
+  void _performPostDragSnapIfNeeded() {
+    if (!mainHorizontalController.hasClients || dayWidth == 0) return;
+    if (_isSlotDragging) return;
+
+    final scroll = mainHorizontalController;
+    // A ballistic simulation started since the listener fired — the
+    // physics is already driving the scroll to a snap boundary.
+    if (scroll.position.isScrollingNotifier.value) return;
+
+    final useWeekSnap = widget.snapToWeekStart && widget.daysShowed == 7;
+
+    double nearestDayOffset;
+    if (useWeekSnap) {
+      nearestDayOffset = _snapToNearestWeekOffset(scroll.offset);
+    } else if (widget.snapToDaysShowed) {
+      final pageIndex = (scroll.offset / (dayWidth * widget.daysShowed)).round();
+      nearestDayOffset = pageIndex * dayWidth * widget.daysShowed;
+    } else {
+      nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
+    }
+
+    if ((nearestDayOffset - scroll.offset).abs() <= 0.5) return;
+
+    scroll.animateTo(
+      nearestDayOffset,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+    );
+
+    final adjustedDay = getDayFromIndex((nearestDayOffset / dayWidth).toInt());
+    widget.onAutomaticAdjustHorizontalScroll?.call(adjustedDay);
   }
 
   /// Computes the horizontal scroll offset for the nearest valid week-start
@@ -537,37 +529,18 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
   /// Snaps the horizontal scroll to the nearest valid boundary after a
   /// scroll ends (covers non-fling drags that stop without velocity).
-  /// Respects [snapToWeekStart] and [snapToDaysShowed].
+  ///
+  /// Snapping is now handled by two dedicated mechanisms:
+  /// - [DaySnappingScrollPhysics] for flings (preserves momentum).
+  /// - [_performPostDragSnapIfNeeded] for non-fling drags (smooth
+  ///   easeOut animation).
+  ///
+  /// This method is kept as a no-op to avoid introducing a third
+  /// competing snap that would create a double-animation feel.
   void _snapToNearestDayHorizontal() {
-    if (!mainHorizontalController.hasClients || dayWidth == 0) return;
-    if (_isSlotDragging) return;
-
-    final scroll = mainHorizontalController;
-    final offset = scroll.offset;
-
-    final useWeekSnap = widget.snapToWeekStart && widget.daysShowed == 7;
-
-    double target;
-    if (useWeekSnap) {
-      target = _snapToNearestWeekOffset(offset);
-    } else if (widget.snapToDaysShowed) {
-      // Snap to bracket boundary (multiple of daysShowed).
-      final pageIndex = (offset / (dayWidth * widget.daysShowed)).round();
-      target = pageIndex * dayWidth * widget.daysShowed;
-    } else {
-      // Snap to nearest single day.
-      target = dayWidth * (offset / dayWidth).round();
-    }
-
-    if ((target - offset).abs() > 0.5) {
-      // Defer to next frame — calling animateTo synchronously inside a
-      // ScrollEndNotification is ignored because the scroll system is
-      // still tearing down the previous activity.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mainHorizontalController.hasClients) return;
-        mainHorizontalController.animateTo(target, duration: const Duration(milliseconds: 200), curve: Curves.easeIn);
-      });
-    }
+    // Snapping is handled by DaySnappingScrollPhysics (flings) and
+    // _performPostDragSnapIfNeeded (non-flings).  No additional
+    // action needed here.
   }
 
   /// Snaps the horizontal scroll to the nearest valid boundary (day or
@@ -594,7 +567,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     if ((target - mainHorizontalController.offset).abs() > 0.5) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mainHorizontalController.hasClients) return;
-        mainHorizontalController.animateTo(target, duration: const Duration(milliseconds: 200), curve: Curves.easeIn);
+        mainHorizontalController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOut,
+        );
       });
     }
   }
@@ -669,7 +646,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       // Suppress the automatic-snap listener while we drive the
       // animation ourselves so it doesn't fight us mid-flight.
       _listenHorizontalScrollDayChange = false;
-      await scroll.animateTo(targetOffset, duration: const Duration(milliseconds: 200), curve: Curves.easeIn);
+      await scroll.animateTo(targetOffset, duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
       _listenHorizontalScrollDayChange = true;
     }
 
@@ -851,10 +828,13 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   Widget getPlannerWidget(Color todayColor, double cellGapWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
+    final useWeekSnap = widget.snapToWeekStart && widget.daysShowed == 7;
     final physics = _plannerPointerDownCount > 1
         ? const NeverScrollableScrollPhysics()
         : _isSlotDragging
         ? const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast)
+        : useWeekSnap
+        ? const PageScrollPhysics()
         : DaySnappingScrollPhysics(
             pageSize: widget.snapToDaysShowed ? dayWidth * widget.daysShowed : dayWidth,
             parent: widget.horizontalScrollPhysics,
@@ -916,9 +896,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     );
   }
 
-  /// New slot overlay using the [CalendarSlot] system.
+  /// Slot overlay using the [CalendarSlot] system.
   Widget _buildSlotOverlay(double cellGapWidthPadding, double plannerHeight) {
-    final slot = _calendarSlotNotifier.value;
+    final slot = _controller.slotSelectionNotifier.value;
     if (slot == null) return const SizedBox.shrink();
 
     final paddedWidth = dayWidth - cellGapWidthPadding * 2;
@@ -927,58 +907,53 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     final leftInset = widget.textDirection == TextDirection.ltr ? widget.timesIndicatorsParam.timesIndicatorsWidth : 0.0;
     final rightInset = widget.textDirection == TextDirection.ltr ? 0.0 : widget.timesIndicatorsParam.timesIndicatorsWidth;
 
-    // Build config from existing params so the new system mirrors old
-    // settings without consumers needing to provide a separate config.
-    final param = widget.dayParam.slotSelectionParam;
+    // Wrap the user-provided config with planner-level state management.
+    final userConfig = widget.dayParam.slotInteractionConfig;
     final config = SlotInteractionConfig(
-      stepMinutes: param.dragIncrementMinutes?.call(slot.columnIndex, slot.startDateTime) ?? widget.dayParam.onSlotMinutesRound,
-      enableShift: param.canDragSlotSelectionAfterShow,
-      enableExtendStart: param.enableExtendStartHandle,
-      enableExtendEnd: param.enableExtendEndHandle,
-      enableHorizontalAxis: true,
-      enableVerticalAxis: true,
-      minDurationMinutes: param.minDurationMinutes,
-      maxDurationMinutes: param.maxDurationMinutes,
-      showHandles: param.showHandles,
-      handleZoneSize: param.handleZoneSize,
-      dragThreshold: param.dragThreshold,
-      accentColor: param.accentColor,
-      slotBorderRadius: param.slotBorderRadius,
-      showDefaultSlotText: param.showDefaultSlotText,
-      use24HourFormat: param.use24HourFormat,
-      onChanged: (updated) {
-        _calendarSlotNotifier.value = updated;
-        param.onSlotSelectionChange?.call(
-          updated != null
-              ? TimedSlotSelection(
-                  columnIndex: updated.columnIndex,
-                  initialStartDate: updated.initialStartDate,
-                  startDateTime: updated.startDateTime,
-                  durationInMinutes: updated.durationInMinutes,
-                )
-              : null,
-        );
-      },
-      onTap: (s) => param.onSlotSelectionTap?.call(
-        TimedSlotSelection(
-          columnIndex: s.columnIndex,
-          initialStartDate: s.initialStartDate,
-          startDateTime: s.startDateTime,
-          durationInMinutes: s.durationInMinutes,
-        ),
-      ),
+      stepMinutes: userConfig.stepMinutes,
+      stepMinutesResolver: userConfig.stepMinutesResolver,
+      enableShift: userConfig.enableShift,
+      enableExtendStart: userConfig.enableExtendStart,
+      enableExtendEnd: userConfig.enableExtendEnd,
+      enableHorizontalAxis: userConfig.enableHorizontalAxis,
+      enableVerticalAxis: userConfig.enableVerticalAxis,
+      minDurationMinutes: userConfig.minDurationMinutes,
+      maxDurationMinutes: userConfig.maxDurationMinutes,
+      showHandles: userConfig.showHandles,
+      handleZoneSize: userConfig.handleZoneSize,
+      dragThreshold: userConfig.dragThreshold,
+      longPressDuration: userConfig.longPressDuration,
+      accentColor: userConfig.accentColor,
+      slotBorderRadius: userConfig.slotBorderRadius,
+      showDefaultSlotText: userConfig.showDefaultSlotText,
+      use24HourFormat: userConfig.use24HourFormat,
+      enableTapSlotSelection: userConfig.enableTapSlotSelection,
+      enableLongPressSlotSelection: userConfig.enableLongPressSlotSelection,
+      enableDoubleTapSlotSelection: userConfig.enableDoubleTapSlotSelection,
+      clearWhenBackgroundTap: userConfig.clearWhenBackgroundTap,
+      enableResize: userConfig.enableResize,
+      defaultDurationMinutes: userConfig.defaultDurationMinutes,
+      slotContentBuilder: userConfig.slotContentBuilder,
+      slotBuilder: userConfig.slotBuilder,
+      topHandleBuilder: userConfig.topHandleBuilder,
+      bottomHandleBuilder: userConfig.bottomHandleBuilder,
+      onChanged: userConfig.onChanged,
+      onTap: userConfig.onTap,
+      onLongPress: userConfig.onLongPress,
       onDragStart: (mode) {
         _isSlotDragging = true;
         slotDragModeNotifier.value = mode;
+        userConfig.onDragStart?.call(mode);
       },
       onDragEnd: (mode) {
         setState(() => _isSlotDragging = false);
         slotDragModeNotifier.value = null;
+        userConfig.onDragEnd?.call(mode);
       },
     );
 
     return SlotOverlay(
-      slotNotifier: _calendarSlotNotifier,
+      slotNotifier: _controller.slotSelectionNotifier,
       config: config,
       timeMapper: plannerTimeMapper,
       dayWidth: dayWidth,
@@ -998,17 +973,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         }
       },
       onChanged: (updated) {
-        _calendarSlotNotifier.value = updated;
-        param.onSlotSelectionChange?.call(
-          updated != null
-              ? TimedSlotSelection(
-                  columnIndex: updated.columnIndex,
-                  initialStartDate: updated.initialStartDate,
-                  startDateTime: updated.startDateTime,
-                  durationInMinutes: updated.durationInMinutes,
-                )
-              : null,
-        );
+        _controller.slotSelectionNotifier.value = updated;
+        userConfig.onChanged?.call(updated);
       },
     );
   }
@@ -1049,7 +1015,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         _syncCurrentDayFromScroll();
         _snapToNearestDayHorizontal();
       },
-      calendarSlotNotifier: _calendarSlotNotifier,
+      calendarSlotNotifier: _controller.slotSelectionNotifier,
     );
   }
 
@@ -1414,30 +1380,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
     mainVerticalController.jumpTo(_clampVerticalOffset(verticalScrollOffset));
   }
-
-  /// Syncs old [TimedSlotSelection] from the controller's notifier to the
-  /// new [CalendarSlot] notifier.  Suppressed while the new system is
-  /// actively dragging to avoid feedback loops with [onChanged].
-  void _syncToSlotModel() {
-    if (_isSlotDragging) return;
-    final oldSlot = _controller.slotSelectionNotifier.value;
-    if (oldSlot is TimedSlotSelection) {
-      _calendarSlotNotifier.value = CalendarSlot(
-        columnIndex: oldSlot.columnIndex,
-        initialStartDate: oldSlot.initialStartDate,
-        startDateTime: oldSlot.startDateTime,
-        endDateTime: oldSlot.endDateTime,
-      );
-    } else if (oldSlot is AllDaySlotSelection) {
-      _calendarSlotNotifier.value = CalendarSlot.allDayFromTap(
-        columnIndex: oldSlot.columnIndex,
-        startDate: oldSlot.startDate,
-        endDate: oldSlot.endDate,
-      );
-    } else if (oldSlot == null) {
-      _calendarSlotNotifier.value = null;
-    }
-  }
 }
 
 class FullDayParam {
@@ -1456,7 +1398,7 @@ class FullDayParam {
     this.fullDayBackgroundColor,
     this.eventEndGap = 0.0,
     this.maxAllDayEventRows,
-    this.allDaySlotSelectionParam = const AllDaySlotSelectionParam(),
+    this.allDaySlotInteractionConfig = const SlotInteractionConfig(),
     this.allDayBarAnimationDuration = const Duration(milliseconds: 200),
     this.allDayBarAnimationCurve = Curves.easeInOut,
   });
@@ -1503,8 +1445,9 @@ class FullDayParam {
 
   /// Configuration for all-day slot selection (tap/long-press on the
   /// all-day bar to create an all-day event placeholder).
-  /// Defaults to [AllDaySlotSelectionParam] with all features disabled.
-  final AllDaySlotSelectionParam allDaySlotSelectionParam;
+  /// Defaults to [SlotInteractionConfig] with all creation triggers
+  /// disabled.
+  final SlotInteractionConfig allDaySlotInteractionConfig;
 
   /// Duration of the animated height transition when the all-day bar
   /// grows or shrinks as events enter/leave the viewport.
@@ -1514,84 +1457,6 @@ class FullDayParam {
   /// Curve used for the animated height transition of the all-day bar.
   /// Defaults to [Curves.easeInOut].
   final Curve allDayBarAnimationCurve;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// AllDaySlotSelectionParam — configuration for the all-day slot selection
-// pill that appears when the user taps or long-presses a day cell in the
-// all-day events bar.
-// ═══════════════════════════════════════════════════════════════════════════
-
-class AllDaySlotSelectionParam {
-  const AllDaySlotSelectionParam({
-    this.enableTapSlotSelection = false,
-    this.enableLongPressSlotSelection = false,
-    this.clearWhenBackgroundTap = true,
-    this.slotSelectionContentBuilder,
-    this.onSlotSelectionChange,
-    this.onSlotSelectionTap,
-    this.onSlotSelectionLongPress,
-    this.accentColor,
-    this.slotBorderRadius = 8.0,
-    this.showDefaultSlotText = true,
-    this.enableDrag = true,
-    this.enableResize = true,
-    this.dragThreshold = 6.0,
-  });
-
-  /// Enable all-day slot selection when tapping a day cell in the all-day bar.
-  final bool enableTapSlotSelection;
-
-  /// Enable all-day slot selection when long-pressing a day cell.
-  final bool enableLongPressSlotSelection;
-
-  /// Clear the all-day slot selection when the user taps elsewhere
-  /// (either on a day column or on the all-day bar background).
-  final bool clearWhenBackgroundTap;
-
-  /// Custom content builder for the all-day slot selection pill.
-  /// When null and [showDefaultSlotText] is true, a minimal date label is shown.
-  final Widget Function(AllDaySlotSelection slot)? slotSelectionContentBuilder;
-
-  /// Called whenever the all-day slot selection changes (created, updated,
-  /// or cleared).
-  final void Function(AllDaySlotSelection? slot)? onSlotSelectionChange;
-
-  /// Called when the user taps an existing all-day slot selection pill.
-  final void Function(AllDaySlotSelection slot)? onSlotSelectionTap;
-
-  /// Called when the all-day slot selection is first created via long-press.
-  final void Function(AllDaySlotSelection slot)? onSlotSelectionLongPress;
-
-  /// Accent color for the pill border and fill.
-  /// Falls back to [Theme.of(context).colorScheme.secondary].
-  final Color? accentColor;
-
-  /// Border radius for the all-day slot selection pill.
-  /// Defaults to 8.0, matching [SlotSelectionParam.slotBorderRadius].
-  final double slotBorderRadius;
-
-  /// Whether to show a default date label inside the pill.
-  /// Defaults to true.
-  final bool showDefaultSlotText;
-
-  /// Enable drag-to-reposition on the all-day slot pill.
-  /// When true, the user can drag the pill left/right to change
-  /// [AllDaySlotSelection.startDate] and [AllDaySlotSelection.endDate]
-  /// by whole-day increments.
-  /// Defaults to true.
-  final bool enableDrag;
-
-  /// Enable left/right edge resize handles on the all-day slot pill.
-  /// When true, the user can drag the left edge to adjust [startDate]
-  /// and the right edge to adjust [endDate].
-  /// Defaults to true.
-  final bool enableResize;
-
-  /// Minimum pointer movement in logical pixels before an all-day
-  /// drag action is committed. Prevents accidental micro-drags.
-  /// Defaults to 6.0.
-  final double dragThreshold;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1976,10 +1841,13 @@ class DayParam {
     this.onSlotLongTap,
     this.onSlotDoubleTap,
     this.onDayBuild,
-    this.slotSelectionParam = const SlotSelectionParam(),
+    this.slotInteractionConfig = const SlotInteractionConfig(),
   });
 
-  static int defaultSlotSelectionDurationInMinutes = 60;
+  /// Default slot duration in minutes used when
+  /// [SlotInteractionConfig.defaultDurationMinutes] is null.
+  /// Defaults to 60.
+  static int defaultSlotDurationMinutes = 60;
 
   /// today day top padding (before scroll)
   final double dayTopPadding;
@@ -2021,165 +1889,13 @@ class DayParam {
   /// event when double tap on free slot on day
   final void Function(int columnIndex, DateTime exactDateTime, DateTime roundDateTime)? onSlotDoubleTap;
 
-  // Interactive slot selection parameters
-  final SlotSelectionParam slotSelectionParam;
-}
-
-class SlotSelectionParam {
-  const SlotSelectionParam({
-    this.enableTapSlotSelection = false,
-    this.enableLongPressSlotSelection = false,
-    this.enableDoubleTapSlotSelection = false,
-    this.clearWhenBackgroundTap = true,
-    this.canDragSlotSelectionAfterShow = true,
-    this.slotSelectionDefaultDurationInMinutes,
-    this.dragIncrementMinutes,
-    this.slotSelectionContentBuilder,
-    this.slotSelectionBuilder,
-    this.onSlotSelectionChange,
-    this.onSlotSelectionTap,
-    this.onSlotSelectionLongPress,
-    this.enableSlotSelectionResize = true,
-    this.enableExtendStartHandle = true,
-    this.enableExtendEndHandle = true,
-    this.slotSelectionTopHandleBuilder,
-    this.slotSelectionBottomHandleBuilder,
-    this.accentColor,
-    this.showHandles = true,
-    this.handleZoneSize = 20.0,
-    this.dragThreshold = 6.0,
-    this.slotBorderRadius = 8.0,
-    this.showDefaultSlotText = true,
-    this.use24HourFormat = true,
-    this.maxDurationMinutes,
-    this.minDurationMinutes = 15,
-  });
-
-  /// enable interactive slot selection when tap on day slot
-  final bool enableTapSlotSelection;
-
-  /// enable interactive slot selection when long press on day slot
-  final bool enableLongPressSlotSelection;
-
-  /// enable interactive slot selection when double tap on day slot
-  final bool enableDoubleTapSlotSelection;
-
-  /// clear slot selection when background tap
-  final bool clearWhenBackgroundTap;
-
-  /// can re-drag slot selection when it show with long press
-  final bool canDragSlotSelectionAfterShow;
-
-  /// default duration in minutes of interactive slot selection
-  final int Function(int columnIndex, DateTime date)? slotSelectionDefaultDurationInMinutes;
-
-  /// Rounding increment in minutes used during drag/resize operations on
-  /// the interactive slot.  When set, this overrides [DayParam.onSlotMinutesRound]
-  /// for drag/resize gestures, letting the slot snap to coarser or finer
-  /// intervals while dragging than the tap-rounding uses.
+  /// Interactive slot configuration — controls creation triggers,
+  /// drag/resize behaviour, visual style, and callbacks for the
+  /// time-grid slot selection system.
   ///
-  /// Accepts the same signature as [slotSelectionDefaultDurationInMinutes]
-  /// so the increment can vary by column or date.
-  ///
-  /// When null (the default), [DayParam.onSlotMinutesRound] is used for
-  /// both tap-rounding and drag-rounding.
-  final int Function(int columnIndex, DateTime date)? dragIncrementMinutes;
-
-  /// interactive slot selection content in default InteractiveSlot
-  final Widget Function(TimedSlotSelection slot)? slotSelectionContentBuilder;
-
-  /// interactive slot selection builder
-  final Widget Function(
-    TimedSlotSelection slot,
-    double dayWidth,
-    DayParam dayParam,
-    ColumnsParam columnsParam,
-    double heightPerMinute,
-    void Function(TimedSlotSelection? updatedSlot) onChanged,
-  )?
-  slotSelectionBuilder;
-
-  /// event when tap on interactive slot
-  final void Function(TimedSlotSelection? slot)? onSlotSelectionChange;
-
-  /// event when tap on interactive slot
-  final void Function(TimedSlotSelection slot)? onSlotSelectionTap;
-
-  /// event when long press on interactive slot
-  final void Function(TimedSlotSelection slot)? onSlotSelectionLongPress;
-
-  /// enable interactive slot selection top and bottom handle for resize
-  final bool enableSlotSelectionResize;
-
-  /// Enable the start (top) drag handle independently.
-  /// When false, the start handle is hidden and non-interactive even if
-  /// [enableSlotSelectionResize] is true.  Defaults to true.
-  final bool enableExtendStartHandle;
-
-  /// Enable the end (bottom) drag handle independently.
-  /// When false, the end handle is hidden and non-interactive even if
-  /// [enableSlotSelectionResize] is true.  Defaults to true.
-  final bool enableExtendEndHandle;
-
-  /// interactive slot selection top handle builder (for resize)
-  final Widget Function()? slotSelectionTopHandleBuilder;
-
-  /// interactive slot selection bottom handle builder (for resize)
-  final Widget Function()? slotSelectionBottomHandleBuilder;
-
-  /// Color used for the left accent bar and resize handles.
-  /// Defaults to the theme's primary color.
-  final Color? accentColor;
-
-  /// Whether to show the Google Calendar style handle indicators
-  /// (small pill shapes at top and bottom).
-  final bool showHandles;
-
-  /// Fixed pixel height of the top and bottom resize zones.
-  /// The middle zone (slot height - 2 * [handleZoneSize]) is the drag zone.
-  /// Defaults to 14.0 pixels.
-  final double handleZoneSize;
-
-  /// Minimum pointer movement in logical pixels before a drag action is
-  /// committed. Prevents accidental micro-drags. Defaults to 6.0.
-  final double dragThreshold;
-
-  /// Border radius for the slot selection pill. Defaults to 8.0.
-  final double slotBorderRadius;
-
-  /// Whether to show the default time/duration text inside the slot.
-  /// When false, only a colored fill with a border is shown.
-  /// Defaults to true.
-  final bool showDefaultSlotText;
-
-  /// Whether to use 24-hour format for the default slot text.
-  /// When false, 12-hour format with AM/PM is used.
-  /// Defaults to true (24-hour format).
-  final bool use24HourFormat;
-
-  /// Maximum duration in minutes a timed slot selection may have.
-  ///
-  /// When set, the slot cannot exceed this total duration, regardless
-  /// of how many calendar days it spans.  For example, with
-  /// [maxDurationMinutes] = 2880, a slot created at 10pm on Jan 1 can
-  /// extend through the full extent of Jan 3 (up to 2880 minutes).
-  ///
-  /// When null (the default), multi-day slots are not enabled and the
-  /// slot is constrained to a single day (0–1440 minutes).
-  final int? maxDurationMinutes;
-
-  /// Returns the maximum duration (in minutes) a slot starting at
-  /// [startMinuteOfDay] may have when [maxDurationMinutes] is set.
-  ///
-  /// Returns null when [maxDurationMinutes] is null (no cap).
-  int? maxDurationForStartMinute(int startMinuteOfDay) {
-    return maxDurationMinutes;
-  }
-
-  /// Minimum duration in minutes for any interactive slot.  Resize
-  /// handles will never let the slot shrink below this value.
-  /// Defaults to 15 minutes.
-  final int minDurationMinutes;
+  /// Defaults to [SlotInteractionConfig] with all creation triggers
+  /// disabled and standard drag/resize enabled.
+  final SlotInteractionConfig slotInteractionConfig;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -2201,28 +1917,57 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
     return DaySnappingScrollPhysics(pageSize: pageSize, parent: buildParent(ancestor));
   }
 
+  /// Minimum velocity (px/s) below which the scroll always snaps to the
+  /// nearest boundary rather than continuing in the fling direction.
+  static const double _directionalVelocityThreshold = 200.0;
+
   @override
   Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
     // Let the parent chain handle friction / bouncing.
     final Simulation? simulation = super.createBallisticSimulation(position, velocity);
 
     if (simulation == null) {
-      return null;
+      // No ballistic motion from the parent (e.g. the user lifted
+      // their finger without flinging).  Snap to the nearest
+      // boundary using the same spring as PageScrollPhysics so the
+      // feel is identical.
+      final snappedEnd = (position.pixels / pageSize).round() * pageSize;
+      if ((snappedEnd - position.pixels).abs() < tolerance.distance) {
+        return null;
+      }
+      return ScrollSpringSimulation(super.spring, position.pixels, snappedEnd, 0, tolerance: tolerance);
     }
 
     // Find where the simulation would naturally end.
     final double naturalEnd = simulation.x(double.infinity);
 
-    // Snap the natural end to the nearest page-size boundary.
-    final double snappedEnd = (naturalEnd / pageSize).round() * pageSize;
+    // Determine the target boundary.
+    //
+    // When the user flings with enough velocity we commit to the
+    // boundary *ahead* of the natural resting point so momentum is
+    // respected rather than rubberbanding back to the previous page.
+    final double snappedEnd;
+    if (velocity > _directionalVelocityThreshold) {
+      // Strong forward fling — go to the next boundary.
+      snappedEnd = (naturalEnd / pageSize).ceil() * pageSize;
+    } else if (velocity < -_directionalVelocityThreshold) {
+      // Strong backward fling — go to the previous boundary.
+      snappedEnd = (naturalEnd / pageSize).floor() * pageSize;
+    } else {
+      // Gentle fling or near-stop — snap to whichever boundary is
+      // closest to the natural end.
+      snappedEnd = (naturalEnd / pageSize).round() * pageSize;
+    }
 
-    if (snappedEnd == naturalEnd) {
-      // Already on a boundary.
+    if ((snappedEnd - naturalEnd).abs() < tolerance.distance) {
+      // Already on or extremely close to a boundary — let the
+      // original friction simulation play out naturally.
       return simulation;
     }
 
-    // Create a spring that drives from the current position to the
-    // snapped boundary with the same initial velocity the fling had.
+    // Drive from the current position to the snapped boundary with
+    // the same initial velocity the fling had.  Uses the same spring
+    // as PageScrollPhysics for a consistent feel across all snap modes.
     return ScrollSpringSimulation(super.spring, position.pixels, snappedEnd, velocity, tolerance: tolerance);
   }
 }

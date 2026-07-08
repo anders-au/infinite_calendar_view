@@ -350,7 +350,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
     }
 
     // Start handle — always at column 0 (reactive position).
-    if (widget.config.enableExtendStart && rTotalDays > 0) {
+    if (widget.config.enableResize && widget.config.enableExtendStart && rTotalDays > 0) {
       final topY = widget.timeMapper.minuteToY(rStartMinute);
       outerChildren.add(Positioned(
         left: segPadL, top: topY, width: colWidth, height: zoneSize,
@@ -370,7 +370,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
     }
 
     // End handle — always at the last column (reactive position).
-    if (widget.config.enableExtendEnd && rTotalDays > 0) {
+    if (widget.config.enableResize && widget.config.enableExtendEnd && rTotalDays > 0) {
       final intra = rEndMinuteAbs - (rTotalDays - 1) * PlannerTimeMapper.minutesPerDay;
       double raw = widget.timeMapper.minuteToY(intra);
       if (gapH > 0 && intra > 0 && intra < PlannerTimeMapper.minutesPerDay &&

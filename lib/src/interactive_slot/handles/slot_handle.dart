@@ -341,8 +341,8 @@ class SlotHandleZone extends StatefulWidget {
 
   bool get _isEnabled => switch (dragMode) {
         DragMode.shift => config.enableShift,
-        DragMode.extendStart => config.enableExtendStart,
-        DragMode.extendEnd => config.enableExtendEnd,
+        DragMode.extendStart => config.enableResize && config.enableExtendStart,
+        DragMode.extendEnd => config.enableResize && config.enableExtendEnd,
       };
 
   @override

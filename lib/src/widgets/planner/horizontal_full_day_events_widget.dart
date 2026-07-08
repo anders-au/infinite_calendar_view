@@ -190,7 +190,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                   // when the user taps or long-presses a day cell in the
                   // all-day bar.  Styled to match InteractiveSlot.
                   _buildAllDaySlotOverlay(
-                    fullDayParam.allDaySlotSelectionParam,
+                    fullDayParam.allDaySlotInteractionConfig,
                     columnsParam,
                     fullDayParam,
                     widget.onSlotDragStart,
@@ -210,7 +210,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
 
   double _computeBarHeight(FullDayParam fullDayParam) {
     final rawRows = _maxEventRows.value;
-    final param = fullDayParam.allDaySlotSelectionParam;
+    final param = fullDayParam.allDaySlotInteractionConfig;
     final canInteract = param.enableTapSlotSelection || param.enableLongPressSlotSelection;
 
     // When interactive slots are enabled, always reserve at least one
@@ -239,7 +239,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
   // -----------------------------------------------------------------------
 
   Widget _buildAllDaySlotOverlay(
-    AllDaySlotSelectionParam param,
+    SlotInteractionConfig param,
     ColumnsParam columnsParam,
     FullDayParam fullDayParam,
     void Function(DragMode mode)? onSlotDragStart,
@@ -256,39 +256,46 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
         final innerWidth = widget.dayWidth - widget.cellGapWidthPadding * 2;
         final columnPositions = columnsParam.getColumPositions(innerWidth, slot.columnIndex);
 
+        // Wrap user config to also update the shared notifier.
         final config = SlotInteractionConfig(
-          enableShift: param.enableDrag,
-          enableExtendStart: param.enableResize,
-          enableExtendEnd: param.enableResize,
-          enableHorizontalAxis: true,
-          enableVerticalAxis: false,
+          stepMinutes: param.stepMinutes,
+          stepMinutesResolver: param.stepMinutesResolver,
+          enableShift: param.enableShift,
+          enableExtendStart: param.enableExtendStart,
+          enableExtendEnd: param.enableExtendEnd,
+          enableHorizontalAxis: param.enableHorizontalAxis,
+          enableVerticalAxis: false, // all-day slots only move horizontally
           minDurationMinutes: 1, // 1 day minimum
-          showHandles: true,
+          maxDurationMinutes: param.maxDurationMinutes,
+          showHandles: param.showHandles,
+          handleZoneSize: param.handleZoneSize,
           dragThreshold: param.dragThreshold,
+          longPressDuration: param.longPressDuration,
           accentColor: param.accentColor,
           slotBorderRadius: param.slotBorderRadius,
           showDefaultSlotText: param.showDefaultSlotText,
+          use24HourFormat: param.use24HourFormat,
+          enableTapSlotSelection: param.enableTapSlotSelection,
+          enableLongPressSlotSelection: param.enableLongPressSlotSelection,
+          enableDoubleTapSlotSelection: param.enableDoubleTapSlotSelection,
+          clearWhenBackgroundTap: param.clearWhenBackgroundTap,
+          enableResize: param.enableResize,
+          defaultDurationMinutes: param.defaultDurationMinutes,
+          slotContentBuilder: param.slotContentBuilder,
+          slotBuilder: param.slotBuilder,
+          topHandleBuilder: param.topHandleBuilder,
+          bottomHandleBuilder: param.bottomHandleBuilder,
           onChanged: (updated) {
             notifier.value = updated;
-            param.onSlotSelectionChange?.call(
-              updated != null
-                  ? AllDaySlotSelection(
-                      columnIndex: updated.columnIndex,
-                      initialStartDate: updated.initialStartDate,
-                      startDate: updated.startDateTime,
-                      endDate: updated.endDateTime.subtract(const Duration(days: 1)),
-                    )
-                  : null,
-            );
+            param.onChanged?.call(updated);
           },
-          onTap: (s) => param.onSlotSelectionTap?.call(
-            AllDaySlotSelection(
-              columnIndex: s.columnIndex,
-              initialStartDate: s.initialStartDate,
-              startDate: s.startDateTime,
-              endDate: s.endDateTime.subtract(const Duration(days: 1)),
-            ),
-          ),
+          onTap: (s) {
+            notifier.value = s;
+            param.onTap?.call(s);
+          },
+          onLongPress: param.onLongPress,
+          onDragStart: param.onDragStart,
+          onDragEnd: param.onDragEnd,
         );
 
         return AllDaySlotOverlay(
@@ -307,16 +314,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
           onDragEnd: onSlotDragEnd,
           onChanged: (updated) {
             notifier.value = updated;
-            param.onSlotSelectionChange?.call(
-              updated != null
-                  ? AllDaySlotSelection(
-                      columnIndex: updated.columnIndex,
-                      initialStartDate: updated.initialStartDate,
-                      startDate: updated.startDateTime,
-                      endDate: updated.endDateTime.subtract(const Duration(days: 1)),
-                    )
-                  : null,
-            );
+            param.onChanged?.call(updated);
           },
         );
       },
@@ -456,7 +454,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     }
 
     if (eventByKey.isEmpty) {
-      final hasSlot = widget.controller.slotSelectionNotifier.value is AllDaySlotSelection;
+      final hasSlot = widget.controller.slotSelectionNotifier.value?.isAllDay == true;
       widget.maxRowsNotifier?.value = hasSlot ? 1 : 0;
       return const SizedBox.shrink();
     }
@@ -501,7 +499,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
 
     // When an all-day interactive slot is active, shift every event
     // down by one row so the slot always sits on top without overlap.
-    final hasSlotSelection = widget.controller.slotSelectionNotifier.value is AllDaySlotSelection;
+    final hasSlotSelection = widget.controller.slotSelectionNotifier.value?.isAllDay == true;
     if (hasSlotSelection) {
       for (final key in rowByKey.keys) {
         rowByKey[key] = rowByKey[key]! + 1;
@@ -572,12 +570,12 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
               // AllDaySlotSelection on the event's start day.  It always
               // occupies row 0 (the top track); existing events are
               // pushed down by the bar's auto-resize system.
-              final param = widget.fullDayParam.allDaySlotSelectionParam;
+              final param = widget.fullDayParam.allDaySlotInteractionConfig;
               final day = widget.getDayFromIndex(startIndex).withoutTime;
-              final selection = AllDaySlotSelection(columnIndex: 0, initialStartDate: day, startDate: day, endDate: day, rowIndex: 0);
-              widget.controller.slotSelectionNotifier.value = selection;
-              param.onSlotSelectionLongPress?.call(selection);
-              param.onSlotSelectionChange?.call(selection);
+              final calSlot = CalendarSlot.allDayFromTap(columnIndex: 0, startDate: day, endDate: day);
+              widget.controller.slotSelectionNotifier.value = calSlot;
+              param.onLongPress?.call(calSlot);
+              param.onChanged?.call(calSlot);
             },
             child:
                 widget.fullDayParam.fullDayEventBuilder?.call(event, width) ??
@@ -653,7 +651,7 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final param = widget.fullDayParam.allDaySlotSelectionParam;
+    final param = widget.fullDayParam.allDaySlotInteractionConfig;
     final canInteract = param.enableTapSlotSelection || param.enableLongPressSlotSelection;
     final width = widget.dayWidth - (widget.cellGapWidthPadding * 2);
 
@@ -680,7 +678,7 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
   }
 
   void _onAllDayTap(dynamic details, double innerWidth, {bool isLongPress = false}) {
-    final param = widget.fullDayParam.allDaySlotSelectionParam;
+    final param = widget.fullDayParam.allDaySlotInteractionConfig;
 
     // Determine which column was tapped.
     int column = 0;
@@ -691,16 +689,16 @@ class _FullDayEventsWidgetState extends State<FullDayEventsWidget> {
     }
 
     final day = widget.day.withoutTime;
-    final selection = AllDaySlotSelection(columnIndex: column, initialStartDate: day, startDate: day, endDate: day);
+    final calSlot = CalendarSlot.allDayFromTap(columnIndex: column, startDate: day, endDate: day);
 
-    widget.controller.slotSelectionNotifier.value = selection;
+    widget.controller.slotSelectionNotifier.value = calSlot;
 
     if (isLongPress) {
-      param.onSlotSelectionLongPress?.call(selection);
+      param.onLongPress?.call(calSlot);
     } else {
-      param.onSlotSelectionTap?.call(selection);
+      param.onTap?.call(calSlot);
     }
-    param.onSlotSelectionChange?.call(selection);
+    param.onChanged?.call(calSlot);
   }
 
   Widget getColumnPainter(double width) {

@@ -384,7 +384,7 @@ and [API docs](https://pub.dev/documentation/infinite_calendar_view/latest/) for
    EventsPlanner(
       dayParam: DayParam(
         onSlotMinutesRound: 30,
-        slotSelectionParam: SlotSelectionParam(
+        slotInteractionConfig: SlotInteractionConfig(
           enableTapSlotSelection: true,
           enableLongPressSlotSelection: true,
         ),

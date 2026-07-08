@@ -24,18 +24,17 @@ class EventsController extends ChangeNotifier {
 
   /// The current interactive slot selection.
   ///
-  /// Holds either a [TimedSlotSelection] (created by tapping a time slot
-  /// in the day grid) or an [AllDaySlotSelection] (created by tapping the
-  /// all-day bar).  A single notifier ensures only one selection can exist
-  /// at a time — creating one type automatically clears the other.
+  /// Holds a [CalendarSlot] (created by tapping a time slot in the day
+  /// grid or the all-day bar).  Set to null to dismiss the selection.
   ///
-  /// Check the runtime type to distinguish:
+  /// Check [CalendarSlot.isAllDay] to distinguish timed vs all-day:
   /// ```dart
   /// final s = controller.slotSelectionNotifier.value;
-  /// if (s is TimedSlotSelection) { ... }
-  /// if (s is AllDaySlotSelection) { ... }
+  /// if (s == null) return;
+  /// if (s.isAllDay) { /* all-day slot */ }
+  /// else           { /* timed slot */ }
   /// ```
-  final slotSelectionNotifier = ValueNotifier<SlotSelection?>(null);
+  final slotSelectionNotifier = ValueNotifier<CalendarSlot?>(null);
 
   /// modify event data and update UI
   void updateCalendarData(UpdateCalendarDataCallback fn) {
@@ -102,7 +101,7 @@ class EventsController extends ChangeNotifier {
     return a.index.compareTo(b.index);
   }
 
-  void changeSlotSelection(SlotSelection? slotSelection) {
+  void changeSlotSelection(CalendarSlot? slotSelection) {
     slotSelectionNotifier.value = slotSelection;
   }
 

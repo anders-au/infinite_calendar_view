@@ -54,14 +54,14 @@ class _PlannerTreeDaysSlotState extends State<PlannerTreeDaysSlot> {
         dayEventBuilder: (event, height, width, heightPerMinute) {
           return CustomEventWidgetExample(controller, event, height, width);
         },
-        slotSelectionParam: SlotSelectionParam(
+        slotInteractionConfig: SlotInteractionConfig(
           enableTapSlotSelection: true,
           enableLongPressSlotSelection: true,
-          enableSlotSelectionResize: false,
-          onSlotSelectionTap: (s) {
+          enableResize: false,
+          onTap: (s) {
             showSnack(context, "${s.startDateTime} : ${s.durationInMinutes}");
           },
-          onSlotSelectionChange: (slot) {
+          onChanged: (slot) {
             if (slot == null) {
               _bottomSheetController?.close();
             } else if (_bottomSheetController == null) {
@@ -101,7 +101,7 @@ class _PlannerTreeDaysSlotState extends State<PlannerTreeDaysSlot> {
     );
   }
 
-  void _openBottomSheet(TimedSlotSelection slot) {
+  void _openBottomSheet(CalendarSlot slot) {
     final scaffoldState = Scaffold.of(context);
     _bottomSheetController = scaffoldState.showBottomSheet(
       enableDrag: true,
@@ -178,7 +178,7 @@ class _PlannerTreeDaysSlotState extends State<PlannerTreeDaysSlot> {
     });
   }
 
-  String getSlotText(TimedSlotSelection slot) {
+  String getSlotText(CalendarSlot slot) {
     var day = intl.DateFormat("E d").format(slot.startDateTime);
     var startHour = intl.DateFormat('Hm').format(slot.startDateTime);
     var endHour = intl.DateFormat('Hm').format(

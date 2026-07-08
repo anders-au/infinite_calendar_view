@@ -126,11 +126,15 @@ class CalendarSlot {
   /// treated as single-day.
   int get totalDaysSpanned {
     if (isAllDay) {
-      // All-day: endDateTime is midnight of day after last day.
-      // E.g. Jan 1 00:00 → Jan 2 00:00 = 1 day.
-      return endDateTime.withoutTime
+      // All-day: endDateTime is midnight of the day after the last day.
+      // E.g. Jan 1 00:00 → Jan 2 00:00 = 1 day,
+      //      Jan 1 00:00 → Jan 3 00:00 = 2 days.
+      // Guard against endDateTime not at a day boundary so the slot
+      // always renders with at least the start day.
+      final days = endDateTime.withoutTime
               .difference(startDateTime.withoutTime)
               .inDays;
+      return days > 0 ? days : 1;
     }
     return effectiveEndDateTime.withoutTime
             .difference(startDateTime.withoutTime)

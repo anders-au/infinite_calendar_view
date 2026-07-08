@@ -19,7 +19,7 @@ class Example extends StatelessWidget {
       heightPerMinute: heightPerMinute,
       initialVerticalScrollOffset: initialVerticalScrollOffset,
       dayParam: DayParam(
-        slotSelectionParam: SlotSelectionParam(
+        slotInteractionConfig: SlotInteractionConfig(
           enableLongPressSlotSelection: true,
         ),
       ),
