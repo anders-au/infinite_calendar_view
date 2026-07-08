@@ -77,9 +77,12 @@ class AllDaySlotOverlay extends StatefulWidget {
   /// Called whenever the slot changes.
   final void Function(CalendarSlot? slot)? onChanged;
 
-  /// Called when a drag begins / ends.
-  final VoidCallback? onDragStart;
-  final VoidCallback? onDragEnd;
+  /// Called when a drag begins, with the [DragMode] that was activated.
+  final void Function(DragMode mode)? onDragStart;
+
+  /// Called when a drag ends, with the [DragMode] that was active.
+  /// [mode] is null if the drag was cancelled abnormally.
+  final void Function(DragMode? mode)? onDragEnd;
 
   @override
   State<AllDaySlotOverlay> createState() => _AllDaySlotOverlayState();
@@ -314,7 +317,8 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final slot = _slot;
     if (slot == null) return;
 
-    widget.onDragStart?.call();
+    widget.onDragStart?.call(mode);
+    widget.config.onDragStart?.call(mode);
 
     // Idle scroll controllers.
     final hc = widget.headerScrollController;
@@ -369,11 +373,13 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   }
 
   void _onDragEnd() {
+    final mode = _session?.mode;
     _session = null;
     _autoScroller?.dispose();
     _autoScroller = null;
     _updateCursor(SystemMouseCursors.basic);
-    widget.onDragEnd?.call();
+    widget.onDragEnd?.call(mode);
+    widget.config.onDragEnd?.call(mode);
   }
 
   Rect? _viewportBounds() {

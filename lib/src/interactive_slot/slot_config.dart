@@ -27,6 +27,8 @@ class SlotInteractionConfig {
     this.onChanged,
     this.onTap,
     this.onLongPress,
+    this.onDragStart,
+    this.onDragEnd,
   });
 
   // ── drag behaviour ───────────────────────────────────────────────────
@@ -108,4 +110,15 @@ class SlotInteractionConfig {
 
   /// Called when a long-press begins on the slot.
   final void Function(CalendarSlot slot)? onLongPress;
+
+  /// Called when a drag gesture begins on the slot, with the [DragMode]
+  /// that was activated ([DragMode.shift], [DragMode.extendStart], or
+  /// [DragMode.extendEnd]).
+  final void Function(DragMode mode)? onDragStart;
+
+  /// Called when a drag gesture ends.
+  ///
+  /// [mode] is the [DragMode] that was active during the drag,
+  /// or null if the drag was cancelled abnormally.
+  final void Function(DragMode? mode)? onDragEnd;
 }

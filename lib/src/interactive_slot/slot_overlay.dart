@@ -89,16 +89,20 @@ class SlotOverlay extends StatefulWidget {
   /// Called whenever the slot changes (drag update).
   final void Function(CalendarSlot? slot)? onChanged;
 
-  /// Called when a drag begins.
-  final VoidCallback? onDragStart;
+  /// Called when a drag begins, with the [DragMode] that was activated.
+  final void Function(DragMode mode)? onDragStart;
 
   /// Called when a drag ends.
-  /// Called when a drag ends with the day that should remain visible:
+  ///
+  /// [keepInView] is the day that should remain visible:
   /// * extendEnd → the end date
   /// * extendStart → the start date
   /// * shift → the new start date
   /// * null → no reconciliation needed
-  final void Function(DateTime? keepInView)? onDragEnd;
+  ///
+  /// [mode] is the [DragMode] that was active during the drag,
+  /// or null if the drag was cancelled abnormally.
+  final void Function(DateTime? keepInView, DragMode? mode)? onDragEnd;
 
   @override
   State<SlotOverlay> createState() => _SlotOverlayState();
@@ -380,7 +384,8 @@ class _SlotOverlayState extends State<SlotOverlay> {
           'dur=${slot.durationInMinutes}min');
     }
 
-    widget.onDragStart?.call();
+    widget.onDragStart?.call(mode);
+    widget.config.onDragStart?.call(mode);
 
     // Idle the scroll controllers so auto-scroll jumpTo works cleanly.
     final sc = widget.scrollController;
@@ -449,7 +454,8 @@ class _SlotOverlayState extends State<SlotOverlay> {
     _autoScroller?.dispose();
     _autoScroller = null;
     _updateCursor(SystemMouseCursors.basic);
-    widget.onDragEnd?.call(keepInView);
+    widget.onDragEnd?.call(keepInView, mode);
+    widget.config.onDragEnd?.call(mode);
   }
 
   Rect? _viewportBounds() {

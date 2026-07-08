@@ -265,6 +265,11 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
   /// in [_resetDrag].
   _DragMode? _preSetMode;
 
+  /// Last global position during a long-press drag, used to compute
+  /// per-frame delta since [LongPressMoveUpdateDetails] does not
+  /// carry a delta field.
+  Offset _lastLongPressGlobalPosition = Offset.zero;
+
   // ── cursor state ────────────────────────────────────────────────────
   MouseCursor _effectiveCursor = SystemMouseCursors.basic;
   bool _isDragging = false;
@@ -307,17 +312,20 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     final param = widget.dayParam.slotSelectionParam;
     final accent = param.accentColor ?? theme.colorScheme.secondary;
     final borderRadius = param.slotBorderRadius;
-    final canDrag = param.canDragSlotSelectionAfterShow;
     final slot = widget.slot;
     // Freeze the multi-day layout during a drag so the widget tree
     // doesn't switch between single-day and multi-day rendering.
-    final isMultiDay = _session != null
-        ? _session!.snapTotalDays > 1
-        : slot.totalDaysSpanned > 1;
+    // During a drag ALL positional values come from the session
+    // snapshot + accumulated delta, never from widget.slot — this
+    // keeps the gesture recognizer alive even when the parent
+    // rebuilds with a different key (e.g. after crossing midnight).
+    final snapTotalDays = _session?.snapTotalDays ?? slot.totalDaysSpanned;
+    final isMultiDay = snapTotalDays > 1;
 
     // ── Multi-day: build content without a slot-wide drag recognizer ─
-    // Only the handle zones get their own drag targets; the rest of the
-    // slot is transparent to pointer events so scroll views work.
+    // Only the handle zones and a long-press body zone get their own
+    // drag targets; the rest of the slot is transparent to pointer
+    // events so scroll views work.
     if (isMultiDay) {
       return MouseRegion(
         opaque: false, // transparent to hit testing; hover still fires
@@ -328,7 +336,13 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
       );
     }
 
-    // ── Single-day: original slot-wide drag recognizer ───────────────
+    // ── Single-day: zone-based layout ──────────────────────────────
+    // The body uses a long-press gesture (shift via long-press+drag)
+    // so quick flings pass through to the calendar scroll views.
+    // Resize handles use immediate drag (_SlotDragRecognizer).
+    final canDrag = param.canDragSlotSelectionAfterShow;
+    final hasResize = param.enableSlotSelectionResize;
+    final zoneSize = param.handleZoneSize;
     return MouseRegion(
       cursor: _effectiveCursor,
       onHover: _isDragging ? null : _onHover,
@@ -338,59 +352,109 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         onPointerCancel: _isDragging ? (_) => _onPointerCancelled() : null,
         onPointerUp: _isDragging ? (_) {} : null,
         onPointerMove: _isDragging ? (_) {} : null,
-        child: Builder(
-          builder: (innerContext) {
-            final gestures = canDrag
-                ? <Type, GestureRecognizerFactory>{
-                    _SlotDragRecognizer: GestureRecognizerFactoryWithHandlers<_SlotDragRecognizer>(
-                      () => _SlotDragRecognizer(
-                        dragThreshold: param.dragThreshold,
-                        // null dragMode: single-day, detected by position on first update
-                        onStart: _onDragStart,
-                        onUpdate: _onDragUpdate,
-                        onEnd: _resetDrag,
-                        onTap: () {
-                          param.onSlotSelectionTap?.call(slot);
-                        },
-                      ),
-                      (instance) {},
-                    ),
-                  }
-                : <Type, GestureRecognizerFactory>{};
-            return RawGestureDetector(
-              behavior: HitTestBehavior.opaque,
-              gestures: gestures,
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(borderRadius),
-                  boxShadow: _session != null
-                      ? [BoxShadow(color: accent.withAlpha(70), blurRadius: 10, offset: const Offset(0, 3))]
-                      : [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(borderRadius),
+            boxShadow: _session != null
+                ? [BoxShadow(color: accent.withAlpha(70), blurRadius: 10, offset: const Offset(0, 3))]
+                : [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // ── Layer 0: content + body shift zone (long-press drag) ─
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => param.onSlotSelectionTap?.call(slot),
+                  onLongPressStart: canDrag ? _onLongPressStart : null,
+                  onLongPressMoveUpdate: canDrag ? _onLongPressMoveUpdate : null,
+                  onLongPressEnd: canDrag ? (_) => _onLongPressEnd() : null,
+                  child: param.slotSelectionContentBuilder?.call(slot) ?? _buildDefaultContent(theme, accent, borderRadius),
                 ),
-                child: Stack(clipBehavior: Clip.none, children: _buildSingleDayChildren(theme, accent, borderRadius)),
               ),
-            );
-          },
+
+              // ── Layer 1: top resize handle (immediate drag) ──────
+              if (hasResize && canDrag)
+                Positioned(
+                  top: 0, left: 0, right: 0, height: zoneSize,
+                  child: Builder(
+                    builder: (ctx) {
+                      final gestures = <Type, GestureRecognizerFactory>{
+                        _SlotDragRecognizer: GestureRecognizerFactoryWithHandlers<_SlotDragRecognizer>(
+                          () => _SlotDragRecognizer(
+                            dragThreshold: param.dragThreshold,
+                            dragMode: _DragMode.resizeTop,
+                            onStart: _onDragStart,
+                            onUpdate: _onDragUpdate,
+                            onEnd: _resetDrag,
+                            onTap: () {},
+                          ),
+                          (instance) {},
+                        ),
+                      };
+                      return RawGestureDetector(behavior: HitTestBehavior.opaque, gestures: gestures);
+                    },
+                  ),
+                ),
+
+              // ── Layer 2: bottom resize handle (immediate drag) ───
+              if (hasResize && canDrag)
+                Positioned(
+                  bottom: 0, left: 0, right: 0, height: zoneSize,
+                  child: Builder(
+                    builder: (ctx) {
+                      final gestures = <Type, GestureRecognizerFactory>{
+                        _SlotDragRecognizer: GestureRecognizerFactoryWithHandlers<_SlotDragRecognizer>(
+                          () => _SlotDragRecognizer(
+                            dragThreshold: param.dragThreshold,
+                            dragMode: _DragMode.resizeBottom,
+                            onStart: _onDragStart,
+                            onUpdate: _onDragUpdate,
+                            onEnd: _resetDrag,
+                            onTap: () {},
+                          ),
+                          (instance) {},
+                        ),
+                      };
+                      return RawGestureDetector(behavior: HitTestBehavior.opaque, gestures: gestures);
+                    },
+                  ),
+                ),
+
+              // ── Layer 3: handle indicators (visual only) ────────
+              if (hasResize && param.showHandles)
+                param.slotSelectionTopHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: true),
+              if (hasResize && param.showHandles)
+                param.slotSelectionBottomHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: false),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// Builds the default single-day slot interior (original behavior).
-  List<Widget> _buildSingleDayChildren(ThemeData theme, Color accent, double borderRadius) {
-    final param = widget.dayParam.slotSelectionParam;
-    return [
-      // ── content ──────────────────────────────────────────
-      Positioned.fill(child: param.slotSelectionContentBuilder?.call(widget.slot) ?? _buildDefaultContent(theme, accent, borderRadius)),
+  // ── long-press drag handlers (for shift mode on the slot body) ──────
+  // These replace the old immediate-drag _SlotDragRecognizer on the body
+  // so that quick flings / swipes over a slot continue to navigate the
+  // calendar.  Only a deliberate long-press-then-drag shifts the slot.
 
-      // ── top handle indicator ─────────────────────────────
-      if (param.enableSlotSelectionResize && param.showHandles)
-        param.slotSelectionTopHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: true),
+  void _onLongPressStart(LongPressStartDetails details) {
+    _log('Long press start — initiating shift drag');
+    _onDragStart(_DragMode.shift);
+    _lastLongPressGlobalPosition = details.globalPosition;
+  }
 
-      // ── bottom handle indicator ──────────────────────────
-      if (param.enableSlotSelectionResize && param.showHandles)
-        param.slotSelectionBottomHandleBuilder?.call() ?? _buildHandleIndicator(accent, isTop: false),
-    ];
+  void _onLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+    if (_session == null) return;
+    final delta = details.globalPosition - _lastLongPressGlobalPosition;
+    _lastLongPressGlobalPosition = details.globalPosition;
+    _handleDragUpdate(delta, details.globalPosition);
+  }
+
+  void _onLongPressEnd() {
+    _log('Long press end');
+    _resetDrag();
   }
 
   /// Builds the body of a multi-day slot: per-day segments, pill handles,
@@ -604,6 +668,55 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           ),
         ),
       );
+    }
+
+    // ── 4. Body shift zones (long-press drag for shift) ─────────
+    // These cover the body area between the resize handles and use
+    // the system long-press gesture so quick flings pass through
+    // to the scroll views.  Placed BEFORE the resize drag targets
+    // in the stack so handles take priority for hit testing.
+    if (canDrag) {
+      for (int d = 0; d < totalDays; d++) {
+        final isFirst = d == 0;
+        final isLast = d == totalDays - 1;
+
+        final double shiftTop;
+        final double shiftHeight;
+
+        if (isFirst && isLast) {
+          // Single-day multi-day: body between handles.
+          shiftTop = startY + (hasResize ? zoneSize : 0);
+          final rawShiftBottom = endY - (hasResize ? zoneSize : 0);
+          shiftHeight = (rawShiftBottom - shiftTop).clamp(0.0, dayHeight);
+        } else if (isFirst) {
+          shiftTop = startY + (hasResize ? zoneSize : 0);
+          shiftHeight = (dayHeight - shiftTop).clamp(0.0, dayHeight);
+        } else if (isLast) {
+          shiftTop = 0;
+          final rawShiftBottom = endY - (hasResize ? zoneSize : 0);
+          shiftHeight = rawShiftBottom.clamp(0.0, dayHeight);
+        } else {
+          shiftTop = 0;
+          shiftHeight = dayHeight;
+        }
+
+        if (shiftHeight > 0) {
+          children.add(
+            Positioned(
+              left: d * dayWidth,
+              top: shiftTop,
+              width: colWidth,
+              height: shiftHeight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPressStart: _onLongPressStart,
+                onLongPressMoveUpdate: _onLongPressMoveUpdate,
+                onLongPressEnd: (_) => _onLongPressEnd(),
+              ),
+            ),
+          );
+        }
+      }
     }
 
     return children;
@@ -964,48 +1077,21 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
+    _handleDragUpdate(details.delta, details.globalPosition);
+  }
+
+  /// Shared drag-update logic usable from both the immediate-drag
+  /// recognizer (resize handles) and the long-press handler (shift).
+  void _handleDragUpdate(Offset delta, Offset globalPosition) {
     // Accumulate raw pixel delta — this is independent of widget position,
     // so it stays correct even as the slot is repositioned mid-drag.
-    _accumulatedDelta += details.delta;
-    _lastGlobalPosition = details.globalPosition;
+    _accumulatedDelta += delta;
+    _lastGlobalPosition = globalPosition;
     _lastDragUpdateTime = DateTime.now();
 
     if (_session == null) {
       // ── First update: determine mode and create the session ──────
-      _DragMode mode;
-      if (_preSetMode != null) {
-        // Multi-day handle: mode was threaded through the recognizer.
-        mode = _preSetMode!;
-      } else {
-        // Single-day: detect mode from pointer position on first move.
-        final renderBox = context.findRenderObject() as RenderBox?;
-        if (renderBox == null) return;
-
-        final height = renderBox.size.height;
-        final param = widget.dayParam.slotSelectionParam;
-        final hasResize = param.enableSlotSelectionResize;
-        final zoneSize = param.handleZoneSize;
-        final localY = renderBox.globalToLocal(details.globalPosition).dy;
-
-        if (hasResize) {
-          // When the slot is very short the top and bottom handle zones
-          // can overlap (height < 2 × zoneSize).  In that ambiguous
-          // region, pick whichever handle the pointer is closer to
-          // rather than always defaulting to the top handle.
-          final distToTop = localY;
-          final distToBottom = height - localY;
-
-          if (distToTop <= zoneSize && distToTop <= distToBottom) {
-            mode = _DragMode.resizeTop;
-          } else if (distToBottom <= zoneSize) {
-            mode = _DragMode.resizeBottom;
-          } else {
-            mode = _DragMode.shift;
-          }
-        } else {
-          mode = _DragMode.shift;
-        }
-      }
+      final mode = _preSetMode ?? _DragMode.shift;
 
       // ── Clear _preSetMode immediately so it can never leak into a
       // subsequent drag session (e.g. when the gesture recognizer
@@ -1036,7 +1122,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
 
     if (debugAutoScroll) {
       debugPrint(
-        '[autoScroll] _onDragUpdate called, delta=(${details.delta.dx.toStringAsFixed(1)},${details.delta.dy.toStringAsFixed(1)}) '
+        '[autoScroll] _handleDragUpdate called, delta=(${delta.dx.toStringAsFixed(1)},${delta.dy.toStringAsFixed(1)}) '
         'mode=${_session!.mode}',
       );
     }

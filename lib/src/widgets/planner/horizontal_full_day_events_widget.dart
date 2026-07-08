@@ -1,14 +1,7 @@
-import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../infinite_calendar_view.dart';
-import '../../interactive_slot/all_day_slot_overlay.dart';
-import '../../interactive_slot/slot_config.dart';
-import '../../interactive_slot/slot_selection.dart';
-import '../../utils/extension.dart';
 import '../../utils/list/infinite_list.dart';
 import '../../utils/list/models/alignments.dart';
 
@@ -52,11 +45,13 @@ class HorizontalFullDayEventsWidget extends StatefulWidget {
   /// [EventsPlanner]'s listener.
   final ScrollController? mainContentHorizontalController;
 
-  /// Called when the all-day slot pill starts being dragged.
-  final VoidCallback? onSlotDragStart;
+  /// Called when the all-day slot pill starts being dragged,
+  /// with the [DragMode] that was activated.
+  final void Function(DragMode mode)? onSlotDragStart;
 
-  /// Called when the all-day slot pill drag ends.
-  final VoidCallback? onSlotDragEnd;
+  /// Called when the all-day slot pill drag ends,
+  /// with the [DragMode] that was active (null if cancelled).
+  final void Function(DragMode? mode)? onSlotDragEnd;
 
   /// Notifier holding the current all-day [CalendarSlot] for the
   /// [AllDaySlotOverlay] system.
@@ -115,17 +110,20 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
     // Compute dynamic bar height from the row count reported by the
     // overlay.  The overlay updates _maxEventRows every frame, and the
     // listener above triggers a rebuild so the bar grows/shrinks.
+    // AnimatedContainer smoothly transitions between heights.
     final barHeight = _computeBarHeight(fullDayParam);
 
-    return Container(
+    return AnimatedContainer(
+      duration: fullDayParam.allDayBarAnimationDuration,
+      curve: fullDayParam.allDayBarAnimationCurve,
+      height: barHeight,
       decoration: fullDayParam.fullDayEventsBarDecoration,
       child: Row(
         textDirection: textDirection,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
             width: timesIndicatorsWidth,
-            height: barHeight,
             child:
                 fullDayParam.fullDayEventsBarLeftWidget ??
                 Center(
@@ -139,9 +137,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                 ),
           ),
           Expanded(
-            child: SizedBox(
-              height: barHeight,
-              child: Stack(
+            child: Stack(
                 clipBehavior: Clip.hardEdge,
                 children: [
                   // Per-day backgrounds and single-day full-day events
@@ -202,7 +198,6 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                   ),
                 ],
               ),
-            ),
           ),
         ],
       ),
@@ -214,11 +209,29 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
   // -----------------------------------------------------------------------
 
   double _computeBarHeight(FullDayParam fullDayParam) {
-    final rows = _maxEventRows.value;
-    if (rows == 0) return fullDayParam.fullDayEventsBarHeight;
+    final rawRows = _maxEventRows.value;
+    final param = fullDayParam.allDaySlotSelectionParam;
+    final canInteract = param.enableTapSlotSelection || param.enableLongPressSlotSelection;
+
+    // When interactive slots are enabled, always reserve at least one
+    // row so the user has a visible tap target even when no static
+    // events are in the viewport.
+    final effectiveRows = (canInteract && rawRows == 0) ? 1 : rawRows;
+
+    // Cap at the configured maximum (null = no limit).
+    final cappedRows = fullDayParam.maxAllDayEventRows != null
+        ? effectiveRows.clamp(0, fullDayParam.maxAllDayEventRows!)
+        : effectiveRows;
+
     // Each row: eventHeight + 2px padding.
     final rowHeight = fullDayParam.fullDayEventHeight + 2.0;
-    return rows * rowHeight + 2.0; // top/bottom padding
+    final computed = cappedRows * rowHeight + 2.0; // top/bottom padding
+
+    // Never shrink below the configured minimum bar height.
+    if (cappedRows == 0) return fullDayParam.fullDayEventsBarHeight;
+    return computed > fullDayParam.fullDayEventsBarHeight
+        ? computed
+        : fullDayParam.fullDayEventsBarHeight;
   }
 
   // -----------------------------------------------------------------------
@@ -229,8 +242,8 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
     AllDaySlotSelectionParam param,
     ColumnsParam columnsParam,
     FullDayParam fullDayParam,
-    VoidCallback? onSlotDragStart,
-    VoidCallback? onSlotDragEnd,
+    void Function(DragMode mode)? onSlotDragStart,
+    void Function(DragMode? mode)? onSlotDragEnd,
   ) {
     final notifier = widget.calendarSlotNotifier!;
 

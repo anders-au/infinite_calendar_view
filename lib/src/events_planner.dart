@@ -269,6 +269,23 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   Drag? _headerHorizontalDrag;
   VoidCallback? _slotSelectionListener;
   bool _isSlotDragging = false;
+
+  /// Public notifier that emits the current [DragMode] while a slot is
+  /// being dragged, and null when no drag is in progress.
+  ///
+  /// Listen to this to react to drag state changes from outside the
+  /// planner widget.  For example:
+  /// ```dart
+  /// plannerState.slotDragModeNotifier.addListener(() {
+  ///   final mode = plannerState.slotDragModeNotifier.value;
+  ///   if (mode == null) {
+  ///     // drag ended
+  ///   } else {
+  ///     // drag in progress with given mode
+  ///   }
+  /// });
+  /// ```
+  final ValueNotifier<DragMode?> slotDragModeNotifier = ValueNotifier<DragMode?>(null);
   final Object _plannerViewControllerOwner = Object();
 
   /// Notifier for the new [CalendarSlot] system.  Only used when
@@ -439,6 +456,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _plannerViewController.detach(owner: _plannerViewControllerOwner);
     topLeftCellValueNotifier.dispose();
     _calendarSlotNotifier.dispose();
+    slotDragModeNotifier.dispose();
 
     super.dispose();
   }
@@ -949,6 +967,14 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
           durationInMinutes: s.durationInMinutes,
         ),
       ),
+      onDragStart: (mode) {
+        _isSlotDragging = true;
+        slotDragModeNotifier.value = mode;
+      },
+      onDragEnd: (mode) {
+        setState(() => _isSlotDragging = false);
+        slotDragModeNotifier.value = null;
+      },
     );
 
     return SlotOverlay(
@@ -966,11 +992,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       verticalScrollController: mainVerticalController,
       viewportLeftInset: leftInset,
       viewportRightInset: rightInset,
-      onDragStart: () {
-        _isSlotDragging = true;
-      },
-      onDragEnd: (keepInView) {
-        setState(() => _isSlotDragging = false);
+      onDragEnd: (keepInView, _) {
         if (keepInView != null) {
           _reconcileAfterSlotDrag(keepInView);
         }
@@ -1017,11 +1039,13 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       dayWidth: dayWidth,
       todayColor: todayColor,
       timesIndicatorsWidth: widget.timesIndicatorsParam.timesIndicatorsWidth,
-      onSlotDragStart: () {
+      onSlotDragStart: (mode) {
         _isSlotDragging = true;
+        slotDragModeNotifier.value = mode;
       },
-      onSlotDragEnd: () {
+      onSlotDragEnd: (mode) {
         setState(() => _isSlotDragging = false);
+        slotDragModeNotifier.value = null;
         _syncCurrentDayFromScroll();
         _snapToNearestDayHorizontal();
       },
@@ -1431,7 +1455,10 @@ class FullDayParam {
     this.fullDayEventBuilder,
     this.fullDayBackgroundColor,
     this.eventEndGap = 0.0,
+    this.maxAllDayEventRows,
     this.allDaySlotSelectionParam = const AllDaySlotSelectionParam(),
+    this.allDayBarAnimationDuration = const Duration(milliseconds: 200),
+    this.allDayBarAnimationCurve = Curves.easeInOut,
   });
 
   /// visibility of full days events
@@ -1469,10 +1496,24 @@ class FullDayParam {
   /// when [EventsPlanner.cellGapWidth] is 0.
   final double eventEndGap;
 
+  /// Maximum number of all-day event rows the bar will display.
+  /// When null (default), the bar grows to fit all visible events.
+  /// Set to a specific value to cap the bar height at that many rows.
+  final int? maxAllDayEventRows;
+
   /// Configuration for all-day slot selection (tap/long-press on the
   /// all-day bar to create an all-day event placeholder).
   /// Defaults to [AllDaySlotSelectionParam] with all features disabled.
   final AllDaySlotSelectionParam allDaySlotSelectionParam;
+
+  /// Duration of the animated height transition when the all-day bar
+  /// grows or shrinks as events enter/leave the viewport.
+  /// Defaults to 200ms.
+  final Duration allDayBarAnimationDuration;
+
+  /// Curve used for the animated height transition of the all-day bar.
+  /// Defaults to [Curves.easeInOut].
+  final Curve allDayBarAnimationCurve;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
