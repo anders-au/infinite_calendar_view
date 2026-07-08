@@ -1425,8 +1425,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // freely move across midnight.
     final newStart = targetMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
     // Only clamp if multi-day is NOT enabled and the slot would cross midnight.
-    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
-    if (maxColSpan == null) {
+    final maxDuration = widget.dayParam.slotSelectionParam.maxDurationMinutes;
+    if (maxDuration == null) {
       final maxStartMinute = PlannerTimeMapper.minutesPerDay - _session!.snapDurationMin;
       final effectiveMinutes = newStart.difference(targetMidnight).inMinutes;
       final clampedMinute = effectiveMinutes.clamp(0, maxStartMinute);
@@ -1492,8 +1492,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // DateTime.add naturally handles negative minute values (previous day).
     final newStart = snapMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
     var newDuration = _session!.snapEndDate.difference(newStart).inMinutes;
-    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
-    if (maxColSpan != null) {
+    final maxDuration = widget.dayParam.slotSelectionParam.maxDurationMinutes;
+    if (maxDuration != null) {
       final maxMinutes = widget.dayParam.slotSelectionParam
           .maxDurationForStartMinute(newStart.totalMinutes);
       // Never clamp below the snap duration — a slot that already
@@ -1529,7 +1529,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           'localOffset.dy=${localOffset.dy.toStringAsFixed(1)}');
     }
     // Enforce minimum slot duration.
-    final minDuration = widget.dayParam.slotSelectionParam.minSlotDurationMinutes;
+    final minDuration = widget.dayParam.slotSelectionParam.minDurationMinutes;
     if (newDuration < minDuration) newDuration = minDuration;
 
     if (newDuration != slot.durationInMinutes && newDuration >= round) {
@@ -1555,9 +1555,9 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // the fragile minuteToYExtended / yToMinuteExtended round-trip.
     final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
     var newDuration = _session!.snapDurationMin + minutesDeltaRounded;
-    // Cap duration based on configured maximum column span.
-    final maxColSpan = widget.dayParam.slotSelectionParam.maxColumnSpan;
-    if (maxColSpan != null) {
+    // Cap duration based on configured maximum duration.
+    final maxDuration = widget.dayParam.slotSelectionParam.maxDurationMinutes;
+    if (maxDuration != null) {
       final maxMinutes = widget.dayParam.slotSelectionParam
           .maxDurationForStartMinute(_session!.snapStartDate.totalMinutes);
       // Never clamp below the snap duration — a slot that already
@@ -1592,7 +1592,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           'slotDuration=${slot.durationInMinutes}');
     }
     // Enforce minimum slot duration.
-    final minDuration = widget.dayParam.slotSelectionParam.minSlotDurationMinutes;
+    final minDuration = widget.dayParam.slotSelectionParam.minDurationMinutes;
     if (newDuration < minDuration) newDuration = minDuration;
 
     if (newDuration != slot.durationInMinutes && newDuration >= round) {

@@ -16,7 +16,7 @@ class SlotInteractionConfig {
     this.enableHorizontalAxis = true,
     this.enableVerticalAxis = true,
     this.minDurationMinutes = 15,
-    this.maxColumnSpan,
+    this.maxDurationMinutes,
     this.showHandles = true,
     this.handleZoneSize = 20.0,
     this.dragThreshold = 6.0,
@@ -64,10 +64,10 @@ class SlotInteractionConfig {
   /// Defaults to 15.
   final int minDurationMinutes;
 
-  /// Maximum number of calendar-day columns a timed slot may span.
-  /// null or values < 2 default to 2 (today + tomorrow).
-  /// Set to a higher value to allow slots spanning more days.
-  final int? maxColumnSpan;
+  /// Maximum duration in minutes a timed slot may have.
+  /// When null, defaults to 2 days (2880 minutes).
+  /// Set to a specific value to cap slot duration directly.
+  final int? maxDurationMinutes;
 
   // ── visuals ──────────────────────────────────────────────────────────
 

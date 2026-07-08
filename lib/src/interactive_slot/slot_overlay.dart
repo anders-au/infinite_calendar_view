@@ -172,7 +172,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
   /// so the widget tree never restructures mid-drag.
   Widget _buildColumnLayout(CalendarSlot slot, Color accent, bool isDragging) {
     final scrollOffset = widget.scrollController?.hasClients == true
-        ? widget.scrollController!.offset
+        ? widget.scrollController!.positions.first.pixels
         : 0.0;
 
     final startDay = slot.startDateTime.withoutTime;
@@ -384,9 +384,9 @@ class _SlotOverlayState extends State<SlotOverlay> {
 
     // Idle the scroll controllers so auto-scroll jumpTo works cleanly.
     final sc = widget.scrollController;
-    if (sc?.hasClients == true) sc!.jumpTo(sc.offset);
+    if (sc?.hasClients == true) sc!.jumpTo(sc.positions.first.pixels);
     final vc = widget.verticalScrollController;
-    if (vc?.hasClients == true) vc!.jumpTo(vc.offset);
+    if (vc?.hasClients == true) vc!.jumpTo(vc.positions.first.pixels);
 
     _session = DragSession(
       anchor: slot,

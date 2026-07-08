@@ -61,7 +61,7 @@ class SlotConstraints {
           'proposedStart=${proposed.startDateTime.toIso8601String()}  '
           'proposedEnd=${proposed.endDateTime.toIso8601String()}  '
           'anchorDur=${dur}min  '
-          'maxColSpan=${config.maxColumnSpan}');
+          'maxDurationMinutes=${config.maxDurationMinutes}');
     }
 
     // Clamp start to not go before 00:00 of its calendar day.
@@ -140,6 +140,13 @@ class SlotConstraints {
       newStart = latestStart;
     }
 
+    // Enforce maxDurationMinutes: end − newStart ≤ maxDur.
+    final maxDur = _effectiveMaxDurationMinutes(config);
+    final duration = end.difference(newStart).inMinutes;
+    if (duration > maxDur) {
+      newStart = end.subtract(Duration(minutes: maxDur));
+    }
+
     // Safety: if start ≥ end, clamp to end − minDuration.
     if (!end.isAfter(newStart)) {
       newStart = end.subtract(Duration(minutes: minDur));
@@ -179,20 +186,14 @@ class SlotConstraints {
     }
 
     // Compute the last allowed minute for the end.
-    final startMinuteOfDay = start.totalMinutes;
-    final cols = _effectiveMaxColumnSpan(config);
-    final maxTotalMinutes = startMinuteOfDay +
-        (cols - 1) * PlannerTimeMapper.minutesPerDay +
-        PlannerTimeMapper.minutesPerDay;
+    final maxDur = _effectiveMaxDurationMinutes(config);
 
-    // Compute the absolute minute of the proposed end.
-    final endAbsMinute =
-        startMinuteOfDay + newEnd.difference(start).inMinutes;
+    // Compute the duration from start of the proposed end.
+    final endDurationFromStart = newEnd.difference(start).inMinutes;
 
-    if (endAbsMinute > maxTotalMinutes) {
-      // Clamp end to the max total minutes.
-      final clampedDuration = maxTotalMinutes - startMinuteOfDay;
-      newEnd = start.add(Duration(minutes: clampedDuration));
+    if (endDurationFromStart > maxDur) {
+      // Clamp end to the max duration.
+      newEnd = start.add(Duration(minutes: maxDur));
     }
 
     // Safety: if end ≤ start, clamp to start + minDuration.
@@ -215,12 +216,12 @@ class SlotConstraints {
   }
 
   /// Returns the effective max column span, defaulting to 2 when
-  /// [config.maxColumnSpan] is null.  This allows slots to extend into
-  /// the next day by default.
-  static int _effectiveMaxColumnSpan(SlotInteractionConfig config) {
-    final span = config.maxColumnSpan;
-    if (span == null || span < 2) return 2;
-    return span;
+  /// [config.maxDurationMinutes] is null.  This allows slots to extend into
+  /// the next day by default (2 days / 2880 minutes).
+  static int _effectiveMaxDurationMinutes(SlotInteractionConfig config) {
+    final d = config.maxDurationMinutes;
+    if (d == null) return 2 * PlannerTimeMapper.minutesPerDay;
+    return d;
   }
 
   /// Returns the latest [DateTime] that a slot of [durationMinutes]
@@ -230,11 +231,8 @@ class SlotConstraints {
     int durationMinutes,
     SlotInteractionConfig config,
   ) {
-    final startMinuteOfDay = start.totalMinutes;
-    final cols = _effectiveMaxColumnSpan(config);
-    final maxTotalMinutes = cols * PlannerTimeMapper.minutesPerDay;
-    final maxDuration = maxTotalMinutes - startMinuteOfDay;
-    final effectiveDur = durationMinutes.clamp(0, maxDuration).toInt();
+    final maxDur = _effectiveMaxDurationMinutes(config);
+    final effectiveDur = durationMinutes.clamp(0, maxDur).toInt();
     return start.add(Duration(minutes: effectiveDur));
   }
 }

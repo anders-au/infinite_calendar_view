@@ -211,8 +211,8 @@ class SegmentBody extends StatelessWidget {
 
           return Padding(
             padding: EdgeInsets.only(
-              top: padTop + 4,
-              bottom: padBottom + 4,
+              top: padTop,
+              bottom: padBottom,
               left: 4,
               right: 4,
             ),
@@ -392,8 +392,18 @@ class _AllDayLabels extends StatelessWidget {
           );
         }
 
+        // Shift text inward when resize handles are visible so labels
+        // don't overlap the handle pills.
+        final handlePad = config.handleZoneSize + 4.0;
+        final leftPad = config.enableExtendStart && config.showHandles
+            ? handlePad
+            : 8.0;
+        final rightPad = config.enableExtendEnd && config.showHandles
+            ? handlePad
+            : 8.0;
+
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: EdgeInsets.fromLTRB(leftPad, 0, rightPad, 0),
           child: Row(
             children: [
               Expanded(

@@ -36,4 +36,5 @@ export './src/interactive_slot/slot_geometry.dart';
 export './src/interactive_slot/slot_controller.dart';
 export './src/interactive_slot/slot_renderer.dart';
 export './src/interactive_slot/slot_overlay.dart';
+export './src/interactive_slot/all_day_slot_overlay.dart';
 export './src/interactive_slot/handles/slot_handle.dart';

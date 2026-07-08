@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:android_gesture_exclusion/android_gesture_exclusion.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -755,7 +756,7 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         final headerWidgets = [
           // top days header
           if (widget.daysHeaderParam.daysHeaderVisibility || widget.columnsParam.columns > 1)
-            getHorizontalDaysIndicatorWidget(_startColumnIndex, onColumnIndexChanged),
+            AndroidGestureExclusionContainer(child: getHorizontalDaysIndicatorWidget(_startColumnIndex, onColumnIndexChanged)),
 
           // full day events
           if (widget.fullDayParam.fullDayEventsBarVisibility) getHorizontalFullDayEventsWidget(cellGapWidthPadding, todayColor),
@@ -1173,8 +1174,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       enableExtendEnd: param.enableExtendEndHandle,
       enableHorizontalAxis: true,
       enableVerticalAxis: true,
-      minDurationMinutes: param.minSlotDurationMinutes,
-      maxColumnSpan: param.maxColumnSpan,
+      minDurationMinutes: param.minDurationMinutes,
+      maxDurationMinutes: param.maxDurationMinutes,
       showHandles: param.showHandles,
       handleZoneSize: param.handleZoneSize,
       dragThreshold: param.dragThreshold,
@@ -1279,6 +1280,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         _syncCurrentDayFromScroll();
         _snapToNearestDayHorizontal();
       },
+      calendarSlotNotifier:
+          widget.useNewSlotSystem ? _calendarSlotNotifier : null,
     );
   }
 
@@ -2310,8 +2313,8 @@ class SlotSelectionParam {
     this.slotBorderRadius = 8.0,
     this.showDefaultSlotText = true,
     this.use24HourFormat = true,
-    this.maxColumnSpan,
-    this.minSlotDurationMinutes = 15,
+    this.maxDurationMinutes,
+    this.minDurationMinutes = 15,
   });
 
   /// enable interactive slot selection when tap on day slot
@@ -2415,34 +2418,29 @@ class SlotSelectionParam {
   /// Defaults to true (24-hour format).
   final bool use24HourFormat;
 
-  /// Maximum number of calendar-day columns a timed slot selection may
-  /// occupy.  Each column represents a full 24-hour day; the first and
-  /// last columns are partial when the slot starts/ends mid-day.
+  /// Maximum duration in minutes a timed slot selection may have.
   ///
-  /// For example, with [maxColumnSpan] = 3, a slot created at 10pm on
-  /// Jan 1 can extend through the full extent of Jan 3 (spanning three
-  /// columns).  The effective duration cap is start-time aware:
-  /// `(1440 − startMinute) + (maxColumnSpan − 1) × 1440` minutes.
+  /// When set, the slot cannot exceed this total duration, regardless
+  /// of how many calendar days it spans.  For example, with
+  /// [maxDurationMinutes] = 2880, a slot created at 10pm on Jan 1 can
+  /// extend through the full extent of Jan 3 (up to 2880 minutes).
   ///
   /// When null (the default), multi-day slots are not enabled and the
-  /// slot is constrained to a single day (0–1440 minutes).  Set to a
-  /// value 2 or greater to allow the slot to cross midnight boundaries.
-  final int? maxColumnSpan;
+  /// slot is constrained to a single day (0–1440 minutes).
+  final int? maxDurationMinutes;
 
   /// Returns the maximum duration (in minutes) a slot starting at
-  /// [startMinuteOfDay] may have when [maxColumnSpan] is set.
+  /// [startMinuteOfDay] may have when [maxDurationMinutes] is set.
   ///
-  /// Returns null when [maxColumnSpan] is null (no multi-day cap).
+  /// Returns null when [maxDurationMinutes] is null (no cap).
   int? maxDurationForStartMinute(int startMinuteOfDay) {
-    if (maxColumnSpan == null) return null;
-    return (PlannerTimeMapper.minutesPerDay - startMinuteOfDay) +
-        (maxColumnSpan! - 1) * PlannerTimeMapper.minutesPerDay;
+    return maxDurationMinutes;
   }
 
   /// Minimum duration in minutes for any interactive slot.  Resize
   /// handles will never let the slot shrink below this value.
   /// Defaults to 15 minutes.
-  final int minSlotDurationMinutes;
+  final int minDurationMinutes;
 }
 
 

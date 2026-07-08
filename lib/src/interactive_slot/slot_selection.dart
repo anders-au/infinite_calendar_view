@@ -7,7 +7,7 @@ import '../utils/planner_time_mapper.dart';
 import 'slot_config.dart';
 
 /// Set to true to print slot drag diagnostics to the console.
-bool debugSlotDrag = true;
+bool debugSlotDrag = false;
 
 /// Unified immutable model for an interactive slot selection in the planner.
 ///

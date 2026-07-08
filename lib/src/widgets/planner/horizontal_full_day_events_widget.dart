@@ -5,6 +5,9 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../infinite_calendar_view.dart';
+import '../../interactive_slot/all_day_slot_overlay.dart';
+import '../../interactive_slot/slot_config.dart';
+import '../../interactive_slot/slot_selection.dart';
 import '../../utils/extension.dart';
 import '../../utils/list/infinite_list.dart';
 import '../../utils/list/models/alignments.dart';
@@ -27,6 +30,7 @@ class HorizontalFullDayEventsWidget extends StatefulWidget {
     this.mainContentHorizontalController,
     this.onSlotDragStart,
     this.onSlotDragEnd,
+    this.calendarSlotNotifier,
   });
 
   final EventsController controller;
@@ -53,6 +57,11 @@ class HorizontalFullDayEventsWidget extends StatefulWidget {
 
   /// Called when the all-day slot pill drag ends.
   final VoidCallback? onSlotDragEnd;
+
+  /// When non-null, uses the new [AllDaySlotOverlay] system instead of the
+  /// legacy [AllDayInteractiveSlot].  Set to [EventsPlannerState]'s
+  /// `_calendarSlotNotifier` when [EventsPlanner.useNewSlotSystem] is true.
+  final ValueNotifier<CalendarSlot?>? calendarSlotNotifier;
 
   DateTime getDayFromIndex(int index) {
     return initialDate.addCalendarDays(textDirection == TextDirection.ltr ? index : -index);
@@ -220,6 +229,14 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
     VoidCallback? onSlotDragEnd,
   ) {
     final param = fullDayParam.allDaySlotSelectionParam;
+
+    // ── New all-day slot system ─────────────────────────────────────
+    if (widget.calendarSlotNotifier != null) {
+      return _buildNewAllDaySlotOverlay(
+        param, columnsParam, fullDayParam, onSlotDragStart, onSlotDragEnd);
+    }
+
+    // ── Legacy all-day slot system ──────────────────────────────────
     return AnimatedBuilder(
       animation: Listenable.merge([controller.slotSelectionNotifier, widget.dayHorizontalController]),
       builder: (context, _) {
@@ -303,6 +320,102 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                   param.onSlotSelectionChange?.call(updatedSlot);
                 },
               ),
+        );
+      },
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // New all-day slot overlay (CalendarSlot system)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  Widget _buildNewAllDaySlotOverlay(
+    AllDaySlotSelectionParam param,
+    ColumnsParam columnsParam,
+    FullDayParam fullDayParam,
+    VoidCallback? onSlotDragStart,
+    VoidCallback? onSlotDragEnd,
+  ) {
+    final notifier = widget.calendarSlotNotifier!;
+
+    return AnimatedBuilder(
+      animation: Listenable.merge([notifier, widget.dayHorizontalController]),
+      builder: (context, _) {
+        final slot = notifier.value;
+        if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
+
+        final innerWidth = widget.dayWidth - widget.cellGapWidthPadding * 2;
+        final columnPositions = columnsParam.getColumPositions(
+          innerWidth,
+          slot.columnIndex,
+        );
+
+        final config = SlotInteractionConfig(
+          stepMinutes: 15,
+          enableShift: param.enableDrag,
+          enableExtendStart: param.enableResize,
+          enableExtendEnd: param.enableResize,
+          enableHorizontalAxis: true,
+          enableVerticalAxis: false,
+          minDurationMinutes: 1, // 1 day minimum
+          showHandles: true,
+          handleZoneSize: 40.0, // wider handles for all-day horizontal layout
+          dragThreshold: param.dragThreshold,
+          accentColor: param.accentColor,
+          slotBorderRadius: param.slotBorderRadius,
+          showDefaultSlotText: param.showDefaultSlotText,
+          onChanged: (updated) {
+            notifier.value = updated;
+            param.onSlotSelectionChange?.call(
+              updated != null
+                  ? AllDaySlotSelection(
+                      columnIndex: updated.columnIndex,
+                      initialStartDate: updated.initialStartDate,
+                      startDate: updated.startDateTime,
+                      endDate: updated.endDateTime
+                          .subtract(const Duration(days: 1)),
+                    )
+                  : null,
+            );
+          },
+          onTap: (s) => param.onSlotSelectionTap?.call(
+            AllDaySlotSelection(
+              columnIndex: s.columnIndex,
+              initialStartDate: s.initialStartDate,
+              startDate: s.startDateTime,
+              endDate: s.endDateTime.subtract(const Duration(days: 1)),
+            ),
+          ),
+        );
+
+        return AllDaySlotOverlay(
+          slotNotifier: notifier,
+          config: config,
+          dayWidth: widget.dayWidth,
+          eventHeight: fullDayParam.fullDayEventHeight,
+          cellGapWidthPadding: widget.cellGapWidthPadding,
+          eventEndGap: fullDayParam.eventEndGap,
+          columnPositions: columnPositions,
+          initialDate: widget.initialDate,
+          headerScrollController: widget.dayHorizontalController,
+          mainContentScrollController: widget.mainContentHorizontalController,
+          viewportLeftInset: widget.timesIndicatorsWidth,
+          onDragStart: onSlotDragStart,
+          onDragEnd: onSlotDragEnd,
+          onChanged: (updated) {
+            notifier.value = updated;
+            param.onSlotSelectionChange?.call(
+              updated != null
+                  ? AllDaySlotSelection(
+                      columnIndex: updated.columnIndex,
+                      initialStartDate: updated.initialStartDate,
+                      startDate: updated.startDateTime,
+                      endDate: updated.endDateTime
+                          .subtract(const Duration(days: 1)),
+                    )
+                  : null,
+            );
+          },
         );
       },
     );

@@ -192,6 +192,7 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
         oldWidget.dragMode != widget.dragMode) {
       _recognizer?.dispose();
       _recognizer = null;
+      _createRecognizer();
     }
   }
 
