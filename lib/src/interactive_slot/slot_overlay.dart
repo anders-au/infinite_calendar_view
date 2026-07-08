@@ -97,7 +97,9 @@ class SlotOverlay extends StatefulWidget {
   /// [keepInView] is the day that should remain visible:
   /// * extendEnd → the end date
   /// * extendStart → the start date
-  /// * shift → the new start date
+  /// * shift → the date of the column the user was actually dragging
+  ///   (the start date if dragged from the first column, otherwise
+  ///   the date of the relative column within the multi-day slot)
   /// * null → no reconciliation needed
   ///
   /// [mode] is the [DragMode] that was active during the drag,
@@ -112,6 +114,12 @@ class _SlotOverlayState extends State<SlotOverlay> {
   DragSession? _session;
   SlotAutoScroller? _autoScroller;
   MouseCursor _effectiveCursor = SystemMouseCursors.basic;
+
+  /// The day-index (0-based, relative to the slot's start) of the column
+  /// from which a shift drag was initiated.  Used on drag-end to keep the
+  /// column the user was actually dragging on screen, rather than always
+  /// jumping to the slot's start.
+  int? _shiftDragColumnIndex;
 
   CalendarSlot? get _slot => widget.slotNotifier.value;
 
@@ -339,7 +347,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
               key: ValueKey('shiftZone$d'),
               dragMode: DragMode.shift,
               config: widget.config,
-              onDragStart: (m) => _onDragStart(m),
+              onDragStart: (m) => _onDragStart(m, shiftColumnIndex: d),
               onDragUpdate: _onDragUpdate,
               onDragEnd: _onDragEnd,
               onTap: () => widget.config.onTap?.call(slot),
@@ -414,7 +422,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
 
   // ── drag lifecycle ───────────────────────────────────────────────────
 
-  void _onDragStart(DragMode mode) {
+  void _onDragStart(DragMode mode, {int? shiftColumnIndex}) {
     final slot = _slot;
     if (slot == null) return;
 
@@ -426,6 +434,8 @@ class _SlotOverlayState extends State<SlotOverlay> {
           'days=${slot.totalDaysSpanned}  '
           'dur=${slot.durationInMinutes}min');
     }
+
+    _shiftDragColumnIndex = shiftColumnIndex;
 
     widget.onDragStart?.call(mode);
     widget.config.onDragStart?.call(mode);
@@ -485,12 +495,21 @@ class _SlotOverlayState extends State<SlotOverlay> {
 
   void _onDragEnd() {
     final mode = _session?.mode;
+    final dragCol = _shiftDragColumnIndex;
+    _shiftDragColumnIndex = null;
+
     DateTime? keepInView;
     if (mode != null && _slot != null) {
       keepInView = switch (mode) {
         DragMode.extendEnd => _slot!.endDateTime,
         DragMode.extendStart => _slot!.startDateTime,
-        DragMode.shift => _slot!.startDateTime,
+        DragMode.shift =>
+          // When the user dragged from a non-start column of a multi-day
+          // slot, keep that relative column on screen — not blindly the
+          // start, which the user wasn't focused on.
+          dragCol != null && dragCol > 0
+              ? _slot!.startDateTime.add(Duration(days: dragCol))
+              : _slot!.startDateTime,
       };
     }
     _session = null;
