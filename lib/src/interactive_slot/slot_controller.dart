@@ -131,6 +131,91 @@ class DragSession {
 /// the viewport edge during a drag.  Uses an internal periodic async.Timer so
 /// scrolling continues smoothly even when the finger pauses at the edge.
 class SlotAutoScroller {
+  /// Set to `true` to print auto-scroll diagnostics to the console.
+  static bool debugAutoScroll = false;
+
+  /// Shared viewport-bounds detection usable from both slot overlays
+  /// and external callers like [DayWidget].
+  ///
+  /// Walks up the render tree from [context] to find the planner viewport
+  /// [RenderBox] and returns its global bounds, excluding the given insets
+  /// (typically the time-indicator column width).
+  ///
+  /// Falls back to the screen size (minus safe areas) if no suitable
+  /// ancestor is found.
+  static Rect? viewportBoundsOf(BuildContext context, {double leftInset = 0, double rightInset = 0}) {
+    // Start from the parent so the calling widget's own RenderBox is
+    // never mistaken for the viewport.
+    RenderObject? current = context.findRenderObject();
+    if (current != null) {
+      final parent = current.parent;
+      current = parent is RenderObject ? parent : null;
+    }
+    RenderBox? best;
+    double bestTop = double.negativeInfinity;
+
+    double screenHeight;
+    try {
+      screenHeight = MediaQuery.sizeOf(context).height;
+    } catch (_) {
+      screenHeight = double.infinity;
+    }
+
+    while (current != null) {
+      if (current is RenderBox && current.hasSize) {
+        final size = current.size;
+        if (size.width >= 200 && size.height >= 200 && size.height <= screenHeight) {
+          try {
+            final globalTop = current.localToGlobal(Offset.zero).dy;
+            if (globalTop > bestTop) {
+              bestTop = globalTop;
+              best = current;
+            }
+          } catch (_) {
+            // Transform might be unavailable — keep walking.
+          }
+        }
+      }
+      final parent = current.parent;
+      if (parent is RenderObject) {
+        current = parent;
+      } else {
+        break;
+      }
+    }
+
+    if (best != null) {
+      try {
+        final globalOffset = best.localToGlobal(Offset.zero);
+        if (debugAutoScroll) {
+          debugPrint(
+            '[autoScroll] selected viewport: '
+            'type=${best.runtimeType} '
+            'size=${best.size.width.toStringAsFixed(0)}x${best.size.height.toStringAsFixed(0)} '
+            'global=(${globalOffset.dx.toStringAsFixed(0)},${globalOffset.dy.toStringAsFixed(0)}) '
+            'insetL=${leftInset.toStringAsFixed(0)} '
+            'insetR=${rightInset.toStringAsFixed(0)}',
+          );
+        }
+        return Rect.fromLTWH(globalOffset.dx + leftInset, globalOffset.dy, best.size.width - leftInset - rightInset, best.size.height);
+      } catch (_) {}
+    }
+
+    // Fallback: use the screen dimensions from MediaQuery.
+    try {
+      final mediaQuery = MediaQuery.of(context);
+      final padding = mediaQuery.padding;
+      return Rect.fromLTWH(
+        padding.left + leftInset,
+        padding.top,
+        mediaQuery.size.width - padding.left - padding.right - leftInset - rightInset,
+        mediaQuery.size.height - padding.top - padding.bottom,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   SlotAutoScroller({
     this.verticalScrollController,
     this.horizontalScrollController,

@@ -1318,7 +1318,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
 
     double screenHeight;
     try {
-      screenHeight = MediaQuery.of(context).size.height;
+      screenHeight = MediaQuery.sizeOf(context).height;
     } catch (_) {
       screenHeight = double.infinity;
     }

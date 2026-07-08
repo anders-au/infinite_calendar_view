@@ -479,7 +479,7 @@ Rect? _viewportBoundsOf(BuildContext context, {double leftInset = 0, double righ
 
   double screenHeight;
   try {
-    screenHeight = MediaQuery.of(context).size.height;
+    screenHeight = MediaQuery.sizeOf(context).height;
   } catch (_) {
     screenHeight = double.infinity;
   }

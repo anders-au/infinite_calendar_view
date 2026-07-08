@@ -394,13 +394,13 @@ class _AllDayLabels extends StatelessWidget {
 
         // Shift text inward when resize handles are visible so labels
         // don't overlap the handle pills.
-        final handlePad = config.handleZoneSize + 4.0;
+        final handlePad = config.handleZoneSize;
         final leftPad = config.enableExtendStart && config.showHandles
             ? handlePad
-            : 8.0;
+            : 4.0;
         final rightPad = config.enableExtendEnd && config.showHandles
             ? handlePad
-            : 8.0;
+            : 4.0;
 
         return Padding(
           padding: EdgeInsets.fromLTRB(leftPad, 0, rightPad, 0),
@@ -409,6 +409,7 @@ class _AllDayLabels extends StatelessWidget {
               Expanded(
                 child: Text(
                   _formatDate(slot.startDateTime),
+                  textAlign: .start,
                   style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

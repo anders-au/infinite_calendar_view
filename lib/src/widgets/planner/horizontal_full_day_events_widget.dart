@@ -58,9 +58,8 @@ class HorizontalFullDayEventsWidget extends StatefulWidget {
   /// Called when the all-day slot pill drag ends.
   final VoidCallback? onSlotDragEnd;
 
-  /// When non-null, uses the new [AllDaySlotOverlay] system instead of the
-  /// legacy [AllDayInteractiveSlot].  Set to [EventsPlannerState]'s
-  /// `_calendarSlotNotifier` when [EventsPlanner.useNewSlotSystem] is true.
+  /// Notifier holding the current all-day [CalendarSlot] for the
+  /// [AllDaySlotOverlay] system.
   final ValueNotifier<CalendarSlot?>? calendarSlotNotifier;
 
   DateTime getDayFromIndex(int index) {
@@ -175,7 +174,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                       );
                     },
                   ),
-                  // Full-day events overlay — rendered outside the per-day
+                  // Full-day events overlay â€” rendered outside the per-day
                   // InfiniteList so multi-day events span day boundaries.
                   // Positioned.fill gives the child fixed constraints from
                   // the Stack size, so LayoutBuilder inside is safe.
@@ -191,10 +190,16 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                         maxRowsNotifier: _maxEventRows,
                       ),
                     ),
-                  // All-day slot selection overlay — a pill that appears
+                  // All-day slot selection overlay â€” a pill that appears
                   // when the user taps or long-presses a day cell in the
                   // all-day bar.  Styled to match InteractiveSlot.
-                  _buildAllDaySlotOverlay(controller, columnsParam, fullDayParam, theme, widget.onSlotDragStart, widget.onSlotDragEnd),
+                  _buildAllDaySlotOverlay(
+                    fullDayParam.allDaySlotSelectionParam,
+                    columnsParam,
+                    fullDayParam,
+                    widget.onSlotDragStart,
+                    widget.onSlotDragEnd,
+                  ),
                 ],
               ),
             ),
@@ -204,9 +209,9 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════
+  // -----------------------------------------------------------------------
   // Dynamic bar height
-  // ═══════════════════════════════════════════════════════════════════════
+  // -----------------------------------------------------------------------
 
   double _computeBarHeight(FullDayParam fullDayParam) {
     final rows = _maxEventRows.value;
@@ -216,120 +221,11 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
     return rows * rowHeight + 2.0; // top/bottom padding
   }
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // All-day slot selection overlay
-  // ═══════════════════════════════════════════════════════════════════════
+  // -----------------------------------------------------------------------
+  // All-day slot overlay (CalendarSlot system)
+  // -----------------------------------------------------------------------
 
   Widget _buildAllDaySlotOverlay(
-    EventsController controller,
-    ColumnsParam columnsParam,
-    FullDayParam fullDayParam,
-    ThemeData theme,
-    VoidCallback? onSlotDragStart,
-    VoidCallback? onSlotDragEnd,
-  ) {
-    final param = fullDayParam.allDaySlotSelectionParam;
-
-    // ── New all-day slot system ─────────────────────────────────────
-    if (widget.calendarSlotNotifier != null) {
-      return _buildNewAllDaySlotOverlay(
-        param, columnsParam, fullDayParam, onSlotDragStart, onSlotDragEnd);
-    }
-
-    // ── Legacy all-day slot system ──────────────────────────────────
-    return AnimatedBuilder(
-      animation: Listenable.merge([controller.slotSelectionNotifier, widget.dayHorizontalController]),
-      builder: (context, _) {
-        final selection = controller.slotSelectionNotifier.value;
-        if (selection is! AllDaySlotSelection) return const SizedBox.shrink();
-
-        final dayWidth = widget.dayWidth;
-        final pad = widget.cellGapWidthPadding;
-        final eventEndGap = fullDayParam.eventEndGap;
-        final eventHeight = fullDayParam.fullDayEventHeight;
-        const rowPadding = 2.0;
-
-        if (!widget.dayHorizontalController.hasClients) {
-          return const SizedBox.shrink();
-        }
-        final scrollOffset = widget.dayHorizontalController.positions.first.pixels;
-
-        // Compute the start day index from initialDate.
-        final startDiff = selection.startDate.withoutTime.difference(widget.initialDate.withoutTime).inDays;
-        final startIndex = widget.textDirection == TextDirection.rtl ? -startDiff : startDiff;
-        final daysSpan = selection.dayCount;
-
-        // Column offset within the day cell.
-        final innerWidth = dayWidth - pad * 2;
-        final columnPositions = columnsParam.getColumPositions(innerWidth, selection.columnIndex);
-
-        // Natural left edge (before clamping).
-        final naturalLeft = startIndex * dayWidth - scrollOffset + pad + columnPositions[0];
-        // Width spans across all days in the selection.
-        final naturalWidth = (daysSpan - 1) * dayWidth + columnPositions[1] - columnPositions[0] - eventEndGap;
-
-        // Apply sticky-left for multi-day selections, matching the
-        // MultiDayEventsOverlay behaviour.
-        final double left;
-        final double width;
-        if (naturalLeft < 0 && naturalLeft + naturalWidth > 0) {
-          // Pill extends past the left edge — clamp the left edge
-          // and adjust width to keep the right edge in place.
-          left = 0.0;
-          width = (naturalLeft + naturalWidth).clamp(1.0, naturalWidth);
-        } else {
-          left = naturalLeft;
-          width = naturalWidth;
-        }
-
-        // Visibility culling.
-        final viewportWidth = MediaQuery.of(context).size.width - widget.timesIndicatorsWidth;
-        if (naturalLeft + naturalWidth <= 0 || naturalLeft >= viewportWidth) {
-          return const SizedBox.shrink();
-        }
-
-        // Determine whether the actual start/end edges are in the
-        // viewport.  Handles are hidden when the corresponding edge
-        // is scrolled out of view.
-        final edgeThreshold = dayWidth * 0.5;
-        final startInView = naturalLeft > -edgeThreshold;
-        final endInView = naturalLeft + naturalWidth < viewportWidth + edgeThreshold;
-
-        final double top = rowPadding + selection.rowIndex * (eventHeight + rowPadding);
-
-        return Positioned(
-          left: left,
-          top: top,
-          width: width,
-          height: eventHeight,
-          child:
-              param.slotSelectionContentBuilder?.call(selection) ??
-              AllDayInteractiveSlot(
-                slot: selection,
-                renderLeftHandle: startInView && param.enableResize,
-                renderRightHandle: endInView && param.enableResize,
-                dayWidth: dayWidth,
-                param: param,
-                horizontalScrollController: widget.dayHorizontalController,
-                mainContentHorizontalController: widget.mainContentHorizontalController,
-                viewportLeftInset: widget.timesIndicatorsWidth,
-                onDragStart: onSlotDragStart,
-                onDragEnd: onSlotDragEnd,
-                onChanged: (AllDaySlotSelection? updatedSlot) {
-                  controller.slotSelectionNotifier.value = updatedSlot;
-                  param.onSlotSelectionChange?.call(updatedSlot);
-                },
-              ),
-        );
-      },
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // New all-day slot overlay (CalendarSlot system)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  Widget _buildNewAllDaySlotOverlay(
     AllDaySlotSelectionParam param,
     ColumnsParam columnsParam,
     FullDayParam fullDayParam,
@@ -345,13 +241,9 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
         if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
 
         final innerWidth = widget.dayWidth - widget.cellGapWidthPadding * 2;
-        final columnPositions = columnsParam.getColumPositions(
-          innerWidth,
-          slot.columnIndex,
-        );
+        final columnPositions = columnsParam.getColumPositions(innerWidth, slot.columnIndex);
 
         final config = SlotInteractionConfig(
-          stepMinutes: 15,
           enableShift: param.enableDrag,
           enableExtendStart: param.enableResize,
           enableExtendEnd: param.enableResize,
@@ -359,7 +251,6 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
           enableVerticalAxis: false,
           minDurationMinutes: 1, // 1 day minimum
           showHandles: true,
-          handleZoneSize: 40.0, // wider handles for all-day horizontal layout
           dragThreshold: param.dragThreshold,
           accentColor: param.accentColor,
           slotBorderRadius: param.slotBorderRadius,
@@ -372,8 +263,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                       columnIndex: updated.columnIndex,
                       initialStartDate: updated.initialStartDate,
                       startDate: updated.startDateTime,
-                      endDate: updated.endDateTime
-                          .subtract(const Duration(days: 1)),
+                      endDate: updated.endDateTime.subtract(const Duration(days: 1)),
                     )
                   : null,
             );
@@ -410,8 +300,7 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
                       columnIndex: updated.columnIndex,
                       initialStartDate: updated.initialStartDate,
                       startDate: updated.startDateTime,
-                      endDate: updated.endDateTime
-                          .subtract(const Duration(days: 1)),
+                      endDate: updated.endDateTime.subtract(const Duration(days: 1)),
                     )
                   : null,
             );
@@ -422,635 +311,11 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// AllDayInteractiveSlot — a draggable, resizable all-day slot pill that
-// mirrors InteractiveSlot but operates on whole-day increments instead of
-// minutes.  Rendered inside the all-day bar overlay.
-// ═══════════════════════════════════════════════════════════════════════════
-
-enum _AllDayDragMode { shift, resizeLeft, resizeRight }
-
-class _AllDaySlotDragRecognizer extends OneSequenceGestureRecognizer {
-  _AllDaySlotDragRecognizer({required this.dragThreshold, required this.onStart, required this.onUpdate, required this.onEnd, required this.onTap});
-
-  final double dragThreshold;
-  final void Function(Offset globalPosition) onStart;
-  final void Function(DragUpdateDetails) onUpdate;
-  final VoidCallback onEnd;
-  final VoidCallback onTap;
-
-  Offset? _startGlobal;
-  bool _dragStarted = false;
-  int? _pointer;
-
-  @override
-  void addAllowedPointer(PointerDownEvent event) {
-    if (_pointer != null) return;
-    startTrackingPointer(event.pointer);
-    _pointer = event.pointer;
-    _startGlobal = event.position;
-    _dragStarted = false;
-  }
-
-  @override
-  void handleEvent(PointerEvent event) {
-    if (event.pointer != _pointer) return;
-    if (event is PointerMoveEvent) {
-      if (_startGlobal == null) return;
-      final delta = event.position - _startGlobal!;
-      if (!_dragStarted) {
-        if (delta.distance < dragThreshold) return;
-        _dragStarted = true;
-        resolve(GestureDisposition.accepted);
-        onStart(_startGlobal!);
-      }
-      onUpdate(
-        DragUpdateDetails(
-          sourceTimeStamp: event.timeStamp,
-          delta: event.localDelta,
-          globalPosition: event.position,
-          localPosition: event.localPosition,
-        ),
-      );
-    } else if (event is PointerUpEvent) {
-      if (!_dragStarted) {
-        onTap();
-        resolve(GestureDisposition.accepted);
-      } else {
-        onEnd();
-      }
-      _finish(event.pointer);
-    } else if (event is PointerCancelEvent) {
-      _finish(event.pointer);
-    }
-  }
-
-  @override
-  void acceptGesture(int pointer) {}
-
-  @override
-  void rejectGesture(int pointer) {
-    if (_pointer == pointer) _finish(pointer);
-  }
-
-  @override
-  void didStopTrackingLastPointer(int pointer) {}
-
-  void _finish(int pointer) {
-    if (_pointer == pointer) {
-      stopTrackingPointer(pointer);
-      _pointer = null;
-      _startGlobal = null;
-      _dragStarted = false;
-    }
-  }
-
-  @override
-  String get debugDescription => '_AllDaySlotDragRecognizer';
-}
-
-class AllDayInteractiveSlot extends StatefulWidget {
-  const AllDayInteractiveSlot({
-    super.key,
-    required this.slot,
-    this.renderLeftHandle = true,
-    this.renderRightHandle = true,
-    required this.dayWidth,
-    required this.param,
-    required this.onChanged,
-    this.horizontalScrollController,
-    this.mainContentHorizontalController,
-    this.autoScrollThreshold = 40.0,
-    this.autoScrollMaxSpeed = 8.0,
-    this.viewportLeftInset = 0,
-    this.viewportRightInset = 0,
-    this.onDragStart,
-    this.onDragEnd,
-  });
-
-  final AllDaySlotSelection slot;
-
-  /// Whether to render the left (resize-start) handle.
-  /// Should be false when the selection's start date is scrolled out
-  /// of view so the handle doesn't float in empty space.
-  final bool renderLeftHandle;
-
-  /// Whether to render the right (resize-end) handle.
-  /// Should be false when the selection's end date is scrolled out
-  /// of view so the handle doesn't float in empty space.
-  final bool renderRightHandle;
-
-  final double dayWidth;
-  final AllDaySlotSelectionParam param;
-  final void Function(AllDaySlotSelection? updatedSlot) onChanged;
-
-  /// Scroll controller for horizontal edge-triggered auto-scroll.
-  /// This is the header/overlay controller; auto-scroll also drives
-  /// [mainContentHorizontalController] to keep content in sync.
-  final ScrollController? horizontalScrollController;
-
-  /// The main planner content scroll controller. Auto-scroll drives this
-  /// controller; the header controller syncs automatically via the
-  /// existing listener in [EventsPlanner].
-  final ScrollController? mainContentHorizontalController;
-
-  final double autoScrollThreshold;
-  final double autoScrollMaxSpeed;
-  final double viewportLeftInset;
-  final double viewportRightInset;
-
-  final VoidCallback? onDragStart;
-  final VoidCallback? onDragEnd;
-
-  @override
-  State<AllDayInteractiveSlot> createState() => _AllDayInteractiveSlotState();
-}
-
-class _AllDayInteractiveSlotState extends State<AllDayInteractiveSlot> {
-  _AllDayDragMode? _dragMode;
-  bool _dragCommitted = false;
-  bool _isDragging = false;
-
-  // Snapshots at drag start.
-  DateTime _snapStartDate = DateTime.now();
-  DateTime _snapEndDate = DateTime.now();
-
-  // Accumulated horizontal delta for day snapping — never reset;
-  // total days offset is computed from this relative to snapshots.
-  double _accumulatedDx = 0;
-
-  // Auto-scroll state (viewport-based, mirrors InteractiveSlot).
-  Timer? _autoScrollTimer;
-  Offset _lastGlobalPosition = Offset.zero;
-
-  // Cursor state.
-  MouseCursor _effectiveCursor = SystemMouseCursors.basic;
-
-  @override
-  void dispose() {
-    _stopAutoScroll();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final param = widget.param;
-    final accent = param.accentColor ?? theme.colorScheme.secondary;
-    final borderRadius = param.slotBorderRadius;
-    final canInteract = param.enableDrag || param.enableResize;
-
-    if (!canInteract) {
-      // Static pill (original behaviour).
-      final fillColor = accent.withAlpha(30);
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          color: fillColor,
-          border: Border.all(color: accent, width: 2, strokeAlign: BorderSide.strokeAlignInside),
-          borderRadius: BorderRadius.circular(borderRadius),
-          boxShadow: [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
-        ),
-        child: param.showDefaultSlotText
-            ? Center(
-                child: Text(
-                  _formatDate(widget.slot.startDate),
-                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              )
-            : const SizedBox.expand(),
-      );
-    }
-
-    // Interactive pill with drag/resize.
-    return MouseRegion(
-      cursor: _effectiveCursor,
-      onHover: _isDragging ? null : _onHover,
-      onExit: _isDragging ? null : (_) => _updateCursor(null),
-      child: Builder(
-        builder: (innerContext) {
-          final gestures = <Type, GestureRecognizerFactory>{
-            _AllDaySlotDragRecognizer: GestureRecognizerFactoryWithHandlers<_AllDaySlotDragRecognizer>(
-              () => _AllDaySlotDragRecognizer(
-                dragThreshold: param.dragThreshold,
-                onStart: _onDragStart,
-                onUpdate: _onDragUpdate,
-                onEnd: _resetDrag,
-                onTap: () {
-                  param.onSlotSelectionTap?.call(widget.slot);
-                },
-              ),
-              (instance) {},
-            ),
-          };
-
-          return RawGestureDetector(behavior: HitTestBehavior.opaque, gestures: gestures, child: _buildPill(accent, borderRadius, theme));
-        },
-      ),
-    );
-  }
-
-  Widget _buildPill(Color accent, double borderRadius, ThemeData theme) {
-    final fillColor = accent.withAlpha(30);
-    final param = widget.param;
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(borderRadius),
-        boxShadow: _dragCommitted
-            ? [BoxShadow(color: accent.withAlpha(70), blurRadius: 10, offset: const Offset(0, 3))]
-            : [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // Fill.
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: fillColor,
-                border: Border.all(color: accent, width: 2),
-                borderRadius: BorderRadius.circular(borderRadius),
-              ),
-              child: param.showDefaultSlotText ? _buildDateLabels(Theme.of(context), accent) : null,
-            ),
-          ),
-          // Left handle (resize start) — only when the actual start
-          // edge is visible in the viewport.
-          if (widget.renderLeftHandle) _buildResizeHandle(accent, isLeft: true),
-          // Right handle (resize end) — only when the actual end
-          // edge is visible in the viewport.
-          if (widget.renderRightHandle) _buildResizeHandle(accent, isLeft: false),
-        ],
-      ),
-    );
-  }
-
-  /// Builds a resize handle indicator that matches the style of
-  /// [InteractiveSlot]'s `_buildHandleIndicator` — a small rounded pill
-  /// inset from the edge rather than an edge-to-edge strip.
-  Widget _buildResizeHandle(Color accent, {required bool isLeft}) {
-    return Positioned(
-      left: isLeft ? 6 : null,
-      right: isLeft ? null : 6,
-      top: 6,
-      bottom: 6,
-      child: Align(
-        alignment: isLeft ? Alignment.centerLeft : Alignment.centerRight,
-        child: Container(
-          width: 4,
-          height: 24,
-          margin: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(3)),
-        ),
-      ),
-    );
-  }
-
-  // ── date labels at ends ───────────────────────────────────────────
-
-  Widget _buildDateLabels(ThemeData theme, Color accent) {
-    final slot = widget.slot;
-    final isSingleDay = DateUtils.isSameDay(slot.startDate, slot.endDate);
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-
-        if (constraints.maxWidth < 60) {
-          return const SizedBox.shrink();
-        }
-
-        if (isSingleDay) {
-          return Center(
-            child: Text(
-              _formatDate(slot.startDate),
-              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }
-
-        // Very narrow pills: just show the start date once, centered.
-        if (constraints.maxWidth < 100) {
-          return Center(
-            child: Text(
-              _formatDate(slot.startDate),
-              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }
-        // Shift text inward when handles are visible so they
-        // don't overlap.
-        final handlePad = 16.0;
-        final edgePad = 6.0;
-        final leftPad = widget.renderLeftHandle ? handlePad : edgePad;
-        final rightPad = widget.renderRightHandle ? handlePad : edgePad;
-
-        return Stack(
-          children: [
-            // Start date at left edge.
-            Positioned(
-              left: leftPad,
-              top: 0,
-              bottom: 0,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _formatDate(slot.startDate),
-                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-            // End date at right edge.
-            Positioned(
-              right: rightPad,
-              top: 0,
-              bottom: 0,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  _formatDate(slot.endDate),
-                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // ── hover cursor ──────────────────────────────────────────────────
-
-  /// Zone in logical pixels from the left/right edge where the cursor
-  /// changes to a resize indicator.
-  static const double _resizeZoneSize = 20.0;
-
-  void _onHover(PointerHoverEvent event) {
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
-    final localX = renderBox.globalToLocal(event.position).dx;
-    final width = renderBox.size.width;
-
-    if (!widget.param.enableResize) {
-      _updateCursor(SystemMouseCursors.grab);
-      return;
-    }
-
-    if (localX < _resizeZoneSize) {
-      _updateCursor(SystemMouseCursors.resizeLeft);
-    } else if (localX > width - _resizeZoneSize) {
-      _updateCursor(SystemMouseCursors.resizeRight);
-    } else {
-      _updateCursor(SystemMouseCursors.grab);
-    }
-  }
-
-  void _updateCursor(MouseCursor? cursor) {
-    if (cursor != null && _effectiveCursor != cursor) {
-      setState(() => _effectiveCursor = cursor);
-    }
-  }
-
-  // ── drag handlers ─────────────────────────────────────────────────
-
-  void _onDragStart(Offset globalPosition) {
-    _dragCommitted = true;
-    _isDragging = true;
-    _snapStartDate = widget.slot.startDate;
-    _snapEndDate = widget.slot.endDate;
-    _accumulatedDx = 0;
-    _lastGlobalPosition = globalPosition;
-    _dragMode = _determineDragMode(globalPosition);
-
-    setState(() {
-      _effectiveCursor = _dragMode == _AllDayDragMode.shift ? SystemMouseCursors.grabbing : SystemMouseCursors.resizeLeftRight;
-    });
-
-    // Cancel any active ballistic scroll on both controllers so
-    // jumpTo calls during auto-scroll are not fighting a fling.
-    // Use positions.first (not .offset which asserts exactly one client)
-    // because the main controller can legitimately be attached to
-    // multiple scroll views (e.g. the planner's InfiniteList).
-    final mhc = widget.mainContentHorizontalController;
-    if (mhc?.hasClients == true) {
-      mhc!.animateTo(mhc.positions.first.pixels, duration: const Duration(milliseconds: 16), curve: Curves.linear);
-    }
-    final hc = widget.horizontalScrollController;
-    if (hc?.hasClients == true) {
-      hc!.animateTo(hc.positions.first.pixels, duration: const Duration(milliseconds: 16), curve: Curves.linear);
-    }
-
-    widget.onDragStart?.call();
-  }
-
-  _AllDayDragMode _determineDragMode(Offset globalPosition) {
-    if (!widget.param.enableResize) return _AllDayDragMode.shift;
-
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return _AllDayDragMode.shift;
-
-    final localPos = renderBox.globalToLocal(globalPosition);
-    final width = renderBox.size.width;
-
-    if (localPos.dx < _resizeZoneSize) return _AllDayDragMode.resizeLeft;
-    if (localPos.dx > width - _resizeZoneSize) {
-      return _AllDayDragMode.resizeRight;
-    }
-    return _AllDayDragMode.shift;
-  }
-
-  void _onDragUpdate(DragUpdateDetails details) {
-    if (!_dragCommitted || _dragMode == null) return;
-
-    _accumulatedDx += details.delta.dx;
-    _lastGlobalPosition = details.globalPosition;
-
-    _applyDaySnap();
-    _updateAutoScroll();
-  }
-
-  void _resetDrag() {
-    _dragCommitted = false;
-    _isDragging = false;
-    _dragMode = null;
-    _accumulatedDx = 0;
-    _lastGlobalPosition = Offset.zero;
-    _stopAutoScroll();
-    setState(() => _effectiveCursor = SystemMouseCursors.basic);
-    widget.onDragEnd?.call();
-  }
-
-  // ── day snapping ──────────────────────────────────────────────────
-
-  /// Computes the total day offset from [_accumulatedDx] relative to
-  /// the snapshots and updates the slot model accordingly.
-  /// Unlike the old implementation, [_accumulatedDx] is **never reset** —
-  /// the total offset is always computed from the original snapshots.
-  void _applyDaySnap() {
-    if (widget.dayWidth <= 0) return;
-
-    final totalDays = (_accumulatedDx / widget.dayWidth).round();
-
-    switch (_dragMode!) {
-      case _AllDayDragMode.shift:
-        if (totalDays == 0) return;
-        final newStart = _snapStartDate.addCalendarDays(totalDays);
-        final newEnd = _snapEndDate.addCalendarDays(totalDays);
-        widget.onChanged(widget.slot.copyWith(startDate: newStart, endDate: newEnd));
-
-      case _AllDayDragMode.resizeLeft:
-        var newStart = _snapStartDate.addCalendarDays(totalDays);
-        if (!newStart.isAfter(_snapEndDate)) {
-          widget.onChanged(widget.slot.copyWith(startDate: newStart));
-        }
-
-      case _AllDayDragMode.resizeRight:
-        var newEnd = _snapEndDate.addCalendarDays(totalDays);
-        if (!newEnd.isBefore(_snapStartDate)) {
-          widget.onChanged(widget.slot.copyWith(endDate: newEnd));
-        }
-    }
-  }
-
-  // ── auto-scroll (viewport-based, mirrors InteractiveSlot) ─────────
-
-  void _updateAutoScroll() {
-    if (widget.autoScrollThreshold <= 0) return;
-
-    final hasMain = widget.mainContentHorizontalController?.hasClients == true;
-    final hasHeader = widget.horizontalScrollController?.hasClients == true;
-    if (!hasMain && !hasHeader) return;
-
-    final viewportBounds = _getViewportBounds();
-    if (viewportBounds == null) return;
-
-    final pos = _lastGlobalPosition;
-    final threshold = widget.autoScrollThreshold;
-    final maxSpeed = widget.autoScrollMaxSpeed;
-
-    double horizontalSpeed = 0;
-
-    final leftDist = pos.dx - viewportBounds.left;
-    final rightDist = viewportBounds.right - pos.dx;
-    if (leftDist < threshold) {
-      horizontalSpeed = -_computeScrollSpeed(leftDist, threshold, maxSpeed);
-    } else if (rightDist < threshold) {
-      horizontalSpeed = _computeScrollSpeed(rightDist, threshold, maxSpeed);
-    }
-
-    if (horizontalSpeed == 0) {
-      _stopAutoScroll();
-      return;
-    }
-
-    if (_autoScrollTimer == null || !_autoScrollTimer!.isActive) {
-      _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 16), _onAutoScrollTick);
-    }
-  }
-
-  void _onAutoScrollTick(Timer timer) {
-    if (!mounted || !_isDragging) {
-      _stopAutoScroll();
-      return;
-    }
-
-    final viewportBounds = _getViewportBounds();
-    if (viewportBounds == null) return;
-
-    final pos = _lastGlobalPosition;
-    final threshold = widget.autoScrollThreshold;
-    final maxSpeed = widget.autoScrollMaxSpeed;
-
-    double horizontalScrollAmount = 0;
-
-    final leftDist = pos.dx - viewportBounds.left;
-    final rightDist = viewportBounds.right - pos.dx;
-    if (leftDist < threshold) {
-      horizontalScrollAmount = -_computeScrollSpeed(leftDist, threshold, maxSpeed);
-    } else if (rightDist < threshold) {
-      horizontalScrollAmount = _computeScrollSpeed(rightDist, threshold, maxSpeed);
-    }
-
-    if (horizontalScrollAmount == 0) {
-      _stopAutoScroll();
-      return;
-    }
-
-    // Drive the main content controller. The header syncs automatically
-    // via the existing listener in EventsPlannerState.
-    final mainHc = widget.mainContentHorizontalController;
-    final headerHc = widget.horizontalScrollController;
-
-    double actualDelta = 0;
-    if (mainHc != null && mainHc.hasClients) {
-      final oldOffset = mainHc.offset;
-      final newOffset = (oldOffset + horizontalScrollAmount).clamp(mainHc.position.minScrollExtent, mainHc.position.maxScrollExtent);
-      final delta = newOffset - oldOffset;
-      if (delta.abs() > 0.01) {
-        mainHc.jumpTo(newOffset);
-        actualDelta = delta;
-      }
-    }
-
-    // Fallback: if no main controller, drive the header directly.
-    if (actualDelta == 0 && headerHc != null && headerHc.hasClients) {
-      final oldOffset = headerHc.offset;
-      final newOffset = (oldOffset + horizontalScrollAmount).clamp(headerHc.position.minScrollExtent, headerHc.position.maxScrollExtent);
-      final delta = newOffset - oldOffset;
-      if (delta.abs() > 0.01) {
-        headerHc.jumpTo(newOffset);
-        actualDelta = delta;
-      }
-    }
-
-    if (actualDelta.abs() > 0.01) {
-      // Compensate accumulated delta so the pill tracks the pointer
-      // despite the scroll offset change (mirrors InteractiveSlot).
-      _accumulatedDx += actualDelta;
-      _applyDaySnap();
-    }
-  }
-
-  double _computeScrollSpeed(double distanceFromEdge, double threshold, double maxSpeed) {
-    if (distanceFromEdge >= threshold) return 0;
-    if (distanceFromEdge <= 0) return maxSpeed;
-    return maxSpeed * (1.0 - distanceFromEdge / threshold);
-  }
-
-  Rect? _getViewportBounds() {
-    return InteractiveSlotState.viewportBoundsOf(context, leftInset: widget.viewportLeftInset, rightInset: widget.viewportRightInset);
-  }
-
-  void _stopAutoScroll() {
-    _autoScrollTimer?.cancel();
-    _autoScrollTimer = null;
-  }
-
-  // ── formatting ────────────────────────────────────────────────────
-
-  String _formatDate(DateTime date) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[date.month - 1]} ${date.day}';
-  }
-}
-
 /// Overlay that renders ALL full-day events (single-day and multi-day) with
 /// a unified greedy row-assignment algorithm so nothing overlaps. Multi-day
 /// events span across day boundaries. Must be placed inside a [Positioned.fill]
 /// so the [LayoutBuilder] inside receives fixed constraints from the [Stack]
-/// size — those never change on scroll, so no layout churn occurs.
+/// size â€” those never change on scroll, so no layout churn occurs.
 class MultiDayEventsOverlay extends StatefulWidget {
   const MultiDayEventsOverlay({
     super.key,
@@ -1128,7 +393,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
   Widget build(BuildContext context) {
     if (!widget.scrollController.hasClients) return const SizedBox.shrink();
     // LayoutBuilder is safe here because we are inside Positioned.fill whose
-    // constraints come from the fixed-size Stack parent — they never change
+    // constraints come from the fixed-size Stack parent â€” they never change
     // on scroll, so no layout churn occurs.
     return LayoutBuilder(
       builder: (context, constraints) {

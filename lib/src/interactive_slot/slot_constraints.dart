@@ -114,8 +114,8 @@ class SlotConstraints {
     SlotInteractionConfig config,
   ) {
     if (proposed.isAllDay) {
-      // All-day: just ensure startDate ≤ endDate.
-      if (proposed.startDateTime.isAfter(proposed.endDateTime)) {
+      // All-day: ensure at least 1 day span.
+      if (proposed.endDateTime.difference(proposed.startDateTime).inDays < 1) {
         return proposed.withDates(
           proposed.endDateTime.subtract(const Duration(days: 1)),
           proposed.endDateTime,
@@ -165,8 +165,8 @@ class SlotConstraints {
     SlotInteractionConfig config,
   ) {
     if (proposed.isAllDay) {
-      // All-day: just ensure endDate ≥ startDate.
-      if (proposed.endDateTime.isBefore(proposed.startDateTime)) {
+      // All-day: ensure at least 1 day span.
+      if (proposed.endDateTime.difference(proposed.startDateTime).inDays < 1) {
         return proposed.withDates(
           proposed.startDateTime,
           proposed.startDateTime.add(const Duration(days: 1)),

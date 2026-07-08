@@ -11,7 +11,7 @@ import '../../events_planner.dart';
 import '../../painters/events_painters.dart';
 import '../../utils/extension.dart';
 import '../../utils/planner_time_mapper.dart';
-import 'interactive_slot.dart';
+import '../../interactive_slot/slot_controller.dart';
 
 class DayWidget extends StatelessWidget {
   const DayWidget({
@@ -290,19 +290,19 @@ class DayWidget extends StatelessWidget {
         (longPress && slotSelectionParam.enableLongPressSlotSelection)) {
       int duration =
           slotSelectionParam.slotSelectionDefaultDurationInMinutes?.call(column, roundDate) ?? DayParam.defaultSlotSelectionDurationInMinutes;
-      final newSlot = TimedSlotSelection(
+      final slot = TimedSlotSelection(
         columnIndex: column,
         initialStartDate: roundDate,
         startDateTime: roundDate,
         durationInMinutes: duration,
       );
-      controller.slotSelectionNotifier.value = newSlot;
-      slotSelectionParam.onSlotSelectionChange?.call(newSlot);
+      controller.slotSelectionNotifier.value = slot;
+      slotSelectionParam.onSlotSelectionChange?.call(slot);
     }
   }
 
   /// Applies edge-triggered auto-scroll during a long-press slot drag.
-  /// Uses the same viewport detection and speed ramp as [InteractiveSlot].
+  /// Uses the same viewport detection and speed ramp as [SlotAutoScroller].
   void _applyLongPressAutoScroll(BuildContext context, Offset globalPosition) {
     if (autoScrollThreshold <= 0) return;
     final vc = verticalScrollController;
@@ -311,14 +311,14 @@ class DayWidget extends StatelessWidget {
       return;
     }
 
-    final bounds = InteractiveSlotState.viewportBoundsOf(
+    final bounds = SlotAutoScroller.viewportBoundsOf(
       context,
       leftInset: viewportLeftInset,
       rightInset: viewportRightInset,
     );
     if (bounds == null) return;
 
-    if (InteractiveSlotState.debugAutoScroll) {
+    if (SlotAutoScroller.debugAutoScroll) {
       debugPrint('[autoScroll-LP] vp=(top:${bounds.top.toStringAsFixed(0)}, '
           'btm:${bounds.bottom.toStringAsFixed(0)}, '
           'h:${bounds.height.toStringAsFixed(0)}) '
@@ -344,7 +344,7 @@ class DayWidget extends StatelessWidget {
           vc.position.maxScrollExtent,
         );
         if ((newOffset - vc.offset).abs() > 0.01) {
-          if (InteractiveSlotState.debugAutoScroll) {
+          if (SlotAutoScroller.debugAutoScroll) {
             debugPrint('[autoScroll-LP] VERTICAL jumpTo ${newOffset.toStringAsFixed(0)} '
                 'speed=${speed.toStringAsFixed(1)}');
           }

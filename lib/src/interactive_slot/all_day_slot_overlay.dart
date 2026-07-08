@@ -241,7 +241,8 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
             left: 6,
             top: 6,
             bottom: 6,
-            child: Align(
+            child:IgnorePointer(
+            child:  Align(
               alignment: Alignment.centerLeft,
               child: Container(
                 width: 4,
@@ -252,13 +253,14 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
                 ),
               ),
             ),
-          ),
+          ),),
 
         if (widget.config.showHandles && widget.config.enableExtendEnd)
           Positioned(
             right: 6,
             top: 6,
             bottom: 6,
+            child: IgnorePointer(
             child: Align(
               alignment: Alignment.centerRight,
               child: Container(
@@ -270,7 +272,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
                 ),
               ),
             ),
-          ),
+          ),)
       ],
     );
   }
@@ -398,7 +400,7 @@ Rect? _findViewportBounds(BuildContext context, {double leftInset = 0}) {
 
   double screenHeight;
   try {
-    screenHeight = MediaQuery.of(context).size.height;
+    screenHeight = MediaQuery.sizeOf(context).height;
   } catch (_) {
     screenHeight = double.infinity;
   }

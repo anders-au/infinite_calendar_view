@@ -95,15 +95,6 @@ class EventsPlannerAllParamView extends StatelessWidget {
           clearWhenBackgroundTap: true,
           slotSelectionDefaultDurationInMinutes: (columnIndex, date) => 60,
           onSlotSelectionChange: (slot) {},
-          slotSelectionBuilder: (slot, dayWidth, dayParam, columnsParam,
-                  heightPerMinute, onChanged) =>
-              InteractiveSlot(
-                  slot: slot,
-                  dayWidth: dayWidth,
-                  dayParam: dayParam,
-                  columnsParam: columnsParam,
-                  heightPerMinute: heightPerMinute,
-                  onChanged: onChanged),
           onSlotSelectionTap: (slot) => showSnack(
               context,
               slot.startDateTime.toString() +

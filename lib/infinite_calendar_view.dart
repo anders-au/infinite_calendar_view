@@ -25,7 +25,6 @@ export './src/widgets/planner/day_widget.dart';
 export './src/widgets/planner/draggable_event.dart';
 export './src/widgets/planner/horizontal_days_indicator_widget.dart';
 export './src/widgets/planner/horizontal_full_day_events_widget.dart';
-export './src/widgets/planner/interactive_slot.dart';
 export './src/widgets/planner/vertical_time_indicator_widget.dart';
 
 // New interactive slot system (coexisting with old)

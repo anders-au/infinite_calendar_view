@@ -215,7 +215,8 @@ class CalendarSlot {
       case DragMode.extendStart:
         final newStart = startDateTime.add(Duration(minutes: totalMinuteShift));
         if (!endDateTime.isAfter(newStart)) {
-          result = withDates(endDateTime.subtract(const Duration(minutes: 1)), endDateTime);
+          final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
+          result = withDates(endDateTime.subtract(Duration(minutes: minDur)), endDateTime);
         } else {
           result = withDates(newStart, endDateTime);
         }
@@ -224,7 +225,8 @@ class CalendarSlot {
       case DragMode.extendEnd:
         final newEnd = endDateTime.add(Duration(minutes: totalMinuteShift));
         if (!newEnd.isAfter(startDateTime)) {
-          result = withDates(startDateTime, startDateTime.add(const Duration(minutes: 1)));
+          final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
+          result = withDates(startDateTime, startDateTime.add(Duration(minutes: minDur)));
         } else {
           result = withDates(startDateTime, newEnd);
         }
