@@ -48,10 +48,18 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
   /// whether to fire [onEnd] during disposal.
   bool get isActive => _pointer != null && _dragStarted;
 
+  void cancelActiveDrag() {
+    _completeDrag();
+    final pointer = _pointer;
+    if (pointer != null) {
+      _finish(pointer);
+    }
+  }
+
   @override
   void addAllowedPointer(PointerDownEvent event) {
     if (_pointer != null) {
-      if (_dragStarted) onEnd();
+      _completeDrag();
       stopTrackingPointer(_pointer!);
       _pointer = null;
       _startGlobal = null;
@@ -89,11 +97,11 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
         onTap();
         resolve(GestureDisposition.accepted);
       } else {
-        onEnd();
+        _completeDrag();
       }
       _finish(event.pointer);
     } else if (event is PointerCancelEvent) {
-      if (_dragStarted) onEnd();
+      _completeDrag();
       _finish(event.pointer);
     }
   }
@@ -104,17 +112,23 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
   @override
   void rejectGesture(int pointer) {
     if (_pointer == pointer) {
-      if (_dragStarted) onEnd();
+      _completeDrag();
       _finish(pointer);
     }
   }
 
   @override
   void didStopTrackingLastPointer(int pointer) {
-    if (_dragStarted) onEnd();
+    _completeDrag();
     _pointer = null;
     _startGlobal = null;
     _dragStarted = false;
+  }
+
+  void _completeDrag() {
+    if (!_dragStarted) return;
+    _dragStarted = false;
+    onEnd();
   }
 
   void _finish(int pointer) {
@@ -180,10 +194,19 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
   /// Whether this recognizer is actively tracking a drag.
   bool get isActive => _pointer != null && _dragStarted;
 
+  void cancelActiveDrag() {
+    _cancelDeadline();
+    _completeDrag();
+    final pointer = _pointer;
+    if (pointer != null) {
+      _finish(pointer);
+    }
+  }
+
   @override
   void addAllowedPointer(PointerDownEvent event) {
     if (_pointer != null) {
-      if (_dragStarted) onEnd();
+      _completeDrag();
       _cancelDeadline();
       stopTrackingPointer(_pointer!);
       _pointer = null;
@@ -233,12 +256,12 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
         onTap();
         resolve(GestureDisposition.accepted);
       } else {
-        onEnd();
+        _completeDrag();
       }
       _finish(event.pointer);
     } else if (event is PointerCancelEvent) {
       _cancelDeadline();
-      if (_dragStarted) onEnd();
+      _completeDrag();
       _finish(event.pointer);
     }
   }
@@ -250,7 +273,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
   void rejectGesture(int pointer) {
     if (_pointer == pointer) {
       _cancelDeadline();
-      if (_dragStarted) onEnd();
+      _completeDrag();
       _finish(pointer);
     }
   }
@@ -258,7 +281,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
   @override
   void didStopTrackingLastPointer(int pointer) {
     _cancelDeadline();
-    if (_dragStarted) onEnd();
+    _completeDrag();
     _pointer = null;
     _startGlobal = null;
     _dragStarted = false;
@@ -278,6 +301,12 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
   void _cancelDeadline() {
     _deadlineTimer?.cancel();
     _deadlineTimer = null;
+  }
+
+  void _completeDrag() {
+    if (!_dragStarted) return;
+    _dragStarted = false;
+    onEnd();
   }
 
   void _finish(int pointer) {
@@ -340,10 +369,10 @@ class SlotHandleZone extends StatefulWidget {
   final VoidCallback? onTap;
 
   bool get _isEnabled => switch (dragMode) {
-        DragMode.shift => config.enableShift,
-        DragMode.extendStart => config.enableResize && config.enableExtendStart,
-        DragMode.extendEnd => config.enableResize && config.enableExtendEnd,
-      };
+    DragMode.shift => config.enableShift,
+    DragMode.extendStart => config.enableResize && config.enableResizeStart,
+    DragMode.extendEnd => config.enableResize && config.enableResizeEnd,
+  };
 
   @override
   State<SlotHandleZone> createState() => _SlotHandleZoneState();
@@ -403,9 +432,9 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
   void dispose() {
     final r = _recognizer;
     if (r is SlotDragRecognizer && r.isActive) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => r.onEnd());
+      r.cancelActiveDrag();
     } else if (r is LongPressDragRecognizer && r.isActive) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => r.onEnd());
+      r.cancelActiveDrag();
     }
     _recognizer?.dispose();
     _recognizer = null;
@@ -431,10 +460,11 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
       return RawGestureDetector(
         behavior: HitTestBehavior.opaque,
         gestures: <Type, GestureRecognizerFactory>{
-          SlotDragRecognizer: GestureRecognizerFactoryWithHandlers<SlotDragRecognizer>(
-            () => r,
-            (_) {},
-          ),
+          SlotDragRecognizer:
+              GestureRecognizerFactoryWithHandlers<SlotDragRecognizer>(
+                () => r,
+                (_) {},
+              ),
         },
         child: widget.child ?? const SizedBox.expand(),
       );
@@ -450,10 +480,11 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
       return RawGestureDetector(
         behavior: HitTestBehavior.translucent,
         gestures: <Type, GestureRecognizerFactory>{
-          LongPressDragRecognizer: GestureRecognizerFactoryWithHandlers<LongPressDragRecognizer>(
-            () => r,
-            (_) {},
-          ),
+          LongPressDragRecognizer:
+              GestureRecognizerFactoryWithHandlers<LongPressDragRecognizer>(
+                () => r,
+                (_) {},
+              ),
         },
         child: widget.child ?? const SizedBox.expand(),
       );
@@ -469,7 +500,12 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
 
 /// A small rounded pill used as a visual indicator on resize handles.
 class HandlePill extends StatelessWidget {
-  const HandlePill({super.key, required this.color, this.width = 36, this.height = 4});
+  const HandlePill({
+    super.key,
+    required this.color,
+    this.width = 36,
+    this.height = 4,
+  });
 
   final Color color;
   final double width;

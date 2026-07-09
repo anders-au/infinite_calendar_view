@@ -33,14 +33,14 @@ class CalendarSlot {
   ///   [DateTime.minute] == 0).
   final DateTime startDateTime;
 
-  /// End date-time.  Always carries a full time component.
+  /// Duration of the slot.  Always positive (zero-length slots are not
+  /// valid).  Together with [startDateTime] this fully defines the slot
+  /// extents — [endDateTime] is derived.
   ///
-  /// * Timed slots use the full value.
-  /// * All-day slots set the time to 23:59:59.999 of the last day so
-  ///   [dayCount] matches the number of calendar days spanned.
-  ///
-  /// Must be strictly after [startDateTime].
-  final DateTime endDateTime;
+  /// * Timed slots store their exact duration (e.g. 60 minutes).
+  /// * All-day slots store `days × 1440` minutes so a 3-day all-day slot
+  ///   has a duration of 4320 minutes.
+  final Duration duration;
 
   /// When true, the slot renders as a horizontal pill in the all-day bar
   /// instead of a vertical block in the time grid.
@@ -50,10 +50,9 @@ class CalendarSlot {
     required this.columnIndex,
     required this.initialStartDate,
     required this.startDateTime,
-    required this.endDateTime,
+    required this.duration,
     this.isAllDay = false,
-  }) : assert(!endDateTime.isBefore(startDateTime),
-            'endDateTime must not be before startDateTime');
+  }) : assert(!duration.isNegative, 'duration must not be negative');
 
   // ── factories ────────────────────────────────────────────────────────
 
@@ -70,7 +69,7 @@ class CalendarSlot {
       columnIndex: columnIndex,
       initialStartDate: startDateTime,
       startDateTime: startDateTime,
-      endDateTime: startDateTime.add(Duration(minutes: durationMinutes)),
+      duration: Duration(minutes: durationMinutes),
     );
   }
 
@@ -86,19 +85,25 @@ class CalendarSlot {
   }) {
     final startDay = startDate.withoutTime;
     final endDay = endDate.withoutTime;
+    final days = endDay.difference(startDay).inDays + 1;
     return CalendarSlot(
       columnIndex: columnIndex,
       initialStartDate: startDay,
       startDateTime: startDay,
-      endDateTime: endDay.add(const Duration(days: 1)),
+      duration: Duration(days: days),
       isAllDay: true,
     );
   }
 
   // ── derived ──────────────────────────────────────────────────────────
 
-  /// Duration between [startDateTime] and [endDateTime].
-  Duration get duration => endDateTime.difference(startDateTime);
+  /// End date-time, computed from [startDateTime] + [duration].
+  ///
+  /// * Timed slots: the actual wall-clock end.
+  /// * All-day slots: midnight of the day after the last spanned day
+  ///   (exclusive end).  For a 3-day slot starting Jan 1, this is
+  ///   Jan 4 00:00.
+  DateTime get endDateTime => startDateTime.add(duration);
 
   /// Duration in whole minutes.
   int get durationInMinutes => duration.inMinutes;
@@ -107,10 +112,11 @@ class CalendarSlot {
   /// day.  A slot ending at 00:00:00.000 is adjusted back by 1 µs so it
   /// belongs to the previous calendar day for span calculations.
   DateTime get effectiveEndDateTime {
-    if (_isMidnight(endDateTime)) {
-      return endDateTime.subtract(const Duration(microseconds: 1));
+    final end = endDateTime;
+    if (_isMidnight(end)) {
+      return end.subtract(const Duration(microseconds: 1));
     }
-    return endDateTime;
+    return end;
   }
 
   /// Minute-of-day for the end (1..1440).  Midnight → 1440.
@@ -126,14 +132,8 @@ class CalendarSlot {
   /// treated as single-day.
   int get totalDaysSpanned {
     if (isAllDay) {
-      // All-day: endDateTime is midnight of the day after the last day.
-      // E.g. Jan 1 00:00 → Jan 2 00:00 = 1 day,
-      //      Jan 1 00:00 → Jan 3 00:00 = 2 days.
-      // Guard against endDateTime not at a day boundary so the slot
-      // always renders with at least the start day.
-      final days = endDateTime.withoutTime
-              .difference(startDateTime.withoutTime)
-              .inDays;
+      // All-day duration is in whole days; compute span directly.
+      final days = duration.inDays;
       return days > 0 ? days : 1;
     }
     return effectiveEndDateTime.withoutTime
@@ -151,15 +151,12 @@ class CalendarSlot {
   /// an all-day slot Jan 1 → Jan 2 (inclusive).
   CalendarSlot toAllDay() {
     if (isAllDay) return this;
-    final startDay = startDateTime.withoutTime;
-    final endDay = effectiveEndDateTime.withoutTime;
-    // endDateTime exclusive: midnight of the day AFTER the last day.
-    final exclusiveEnd = endDay.add(const Duration(days: 1));
+    final days = totalDaysSpanned;
     return CalendarSlot(
       columnIndex: columnIndex,
       initialStartDate: initialStartDate,
-      startDateTime: startDay,
-      endDateTime: exclusiveEnd,
+      startDateTime: startDateTime.withoutTime,
+      duration: Duration(days: days),
       isAllDay: true,
     );
   }
@@ -175,7 +172,7 @@ class CalendarSlot {
       columnIndex: columnIndex,
       initialStartDate: initialStartDate,
       startDateTime: startDateTime,
-      endDateTime: endDateTime, // already midnight of day after last day
+      duration: duration,
       isAllDay: false,
     );
   }
@@ -208,31 +205,27 @@ class CalendarSlot {
     switch (mode) {
       case DragMode.shift:
         final newStart = startDateTime.add(Duration(minutes: totalMinuteShift));
-        final newEnd = endDateTime.add(Duration(minutes: totalMinuteShift));
-        if (!newEnd.isAfter(newStart)) {
-          result = withDates(startDateTime, startDateTime.add(const Duration(minutes: 1)));
-        } else {
-          result = withDates(newStart, newEnd);
-        }
+        result = withStart(newStart);
         break;
 
       case DragMode.extendStart:
         final newStart = startDateTime.add(Duration(minutes: totalMinuteShift));
-        if (!endDateTime.isAfter(newStart)) {
+        final newDur = endDateTime.difference(newStart);
+        if (newDur.inMinutes <= 0) {
           final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
-          result = withDates(endDateTime.subtract(Duration(minutes: minDur)), endDateTime);
+          result = withDuration(Duration(minutes: minDur));
         } else {
-          result = withDates(newStart, endDateTime);
+          result = withStart(newStart).copyWith(duration: newDur);
         }
         break;
 
       case DragMode.extendEnd:
-        final newEnd = endDateTime.add(Duration(minutes: totalMinuteShift));
-        if (!newEnd.isAfter(startDateTime)) {
+        final newDur = duration + Duration(minutes: totalMinuteShift);
+        if (newDur.inMinutes <= 0) {
           final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
-          result = withDates(startDateTime, startDateTime.add(Duration(minutes: minDur)));
+          result = withDuration(Duration(minutes: minDur));
         } else {
-          result = withDates(startDateTime, newEnd);
+          result = withDuration(newDur);
         }
         break;
     }
@@ -257,22 +250,45 @@ class CalendarSlot {
     int? columnIndex,
     DateTime? initialStartDate,
     DateTime? startDateTime,
-    DateTime? endDateTime,
+    Duration? duration,
     bool? isAllDay,
   }) {
     return CalendarSlot(
       columnIndex: columnIndex ?? this.columnIndex,
       initialStartDate: initialStartDate ?? this.initialStartDate,
       startDateTime: startDateTime ?? this.startDateTime,
-      endDateTime: endDateTime ?? this.endDateTime,
+      duration: duration ?? this.duration,
       isAllDay: isAllDay ?? this.isAllDay,
     );
   }
 
   // ── helpers ──────────────────────────────────────────────────────────
 
-  /// Returns a copy with [newStart] and [newEnd], preserving all other fields.
-  /// Public so [SlotConstraints] can produce clamped copies.
+  /// Returns a copy with [newStart], preserving [duration].
+  CalendarSlot withStart(DateTime newStart) {
+    return CalendarSlot(
+      columnIndex: columnIndex,
+      initialStartDate: initialStartDate,
+      startDateTime: newStart,
+      duration: duration,
+      isAllDay: isAllDay,
+    );
+  }
+
+  /// Returns a copy with [newDuration], preserving [startDateTime].
+  CalendarSlot withDuration(Duration newDuration) {
+    return CalendarSlot(
+      columnIndex: columnIndex,
+      initialStartDate: initialStartDate,
+      startDateTime: startDateTime,
+      duration: newDuration,
+      isAllDay: isAllDay,
+    );
+  }
+
+  /// Returns a copy with [newStart] and [newEnd], computing [duration]
+  /// from the two dates.  Public so [SlotConstraints] can produce clamped
+  /// copies.
   ///
   /// Unlike the main constructor this does **not** assert ordering — it is
   /// used internally during drag computation where the constraints layer
@@ -288,7 +304,7 @@ class CalendarSlot {
       columnIndex: columnIndex,
       initialStartDate: initialStartDate,
       startDateTime: newStart,
-      endDateTime: newEnd,
+      duration: newEnd.difference(newStart),
       isAllDay: isAllDay,
     );
   }
@@ -310,7 +326,7 @@ class CalendarSlot {
       columnIndex == other.columnIndex &&
       initialStartDate == other.initialStartDate &&
       startDateTime == other.startDateTime &&
-      endDateTime == other.endDateTime &&
+      duration == other.duration &&
       isAllDay == other.isAllDay;
 
   @override
@@ -318,14 +334,14 @@ class CalendarSlot {
         columnIndex,
         initialStartDate,
         startDateTime,
-        endDateTime,
+        duration,
         isAllDay,
       );
 
   @override
   String toString() =>
       'CalendarSlot(column: $columnIndex, '
-      'start: $startDateTime, end: $endDateTime, '
+      'start: $startDateTime, dur: $duration, '
       'allDay: $isAllDay, days: $totalDaysSpanned)';
 }
 

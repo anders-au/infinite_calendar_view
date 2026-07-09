@@ -17,8 +17,8 @@ class SlotInteractionConfig {
     this.stepMinutes = 15,
     this.stepMinutesResolver,
     this.enableShift = true,
-    this.enableExtendStart = true,
-    this.enableExtendEnd = true,
+    this.enableResizeStart = true,
+    this.enableResizeEnd = true,
     this.enableHorizontalAxis = true,
     this.enableVerticalAxis = true,
     this.minDurationMinutes = 15,
@@ -73,11 +73,11 @@ class SlotInteractionConfig {
 
   /// Allow resizing from the start (top) handle.
   /// Defaults to true.
-  final bool enableExtendStart;
+  final bool enableResizeStart;
 
   /// Allow resizing from the end (bottom) handle.
   /// Defaults to true.
-  final bool enableExtendEnd;
+  final bool enableResizeEnd;
 
   /// Allow horizontal drags (left/right = day change).
   /// When false, only vertical movement is permitted.
@@ -192,7 +192,7 @@ class SlotInteractionConfig {
 
   /// Master switch for resize handles on the slot.
   ///
-  /// When false, both [enableExtendStart] and [enableExtendEnd] are
+  /// When false, both [enableResizeStart] and [enableResizeEnd] are
   /// ignored and no resize handles appear.  Defaults to true.
   final bool enableResize;
 
@@ -235,14 +235,14 @@ class SlotInteractionConfig {
   /// Custom widget for the top (start) resize handle indicator.
   ///
   /// When null and [showHandles] is true, a default pill-shaped handle
-  /// is rendered.  Only shown when [enableResize] and [enableExtendStart]
+  /// is rendered.  Only shown when [enableResize] and [enableResizeStart]
   /// are both true.
   final Widget Function()? topHandleBuilder;
 
   /// Custom widget for the bottom (end) resize handle indicator.
   ///
   /// When null and [showHandles] is true, a default pill-shaped handle
-  /// is rendered.  Only shown when [enableResize] and [enableExtendEnd]
+  /// is rendered.  Only shown when [enableResize] and [enableResizeEnd]
   /// are both true.
   final Widget Function()? bottomHandleBuilder;
 }

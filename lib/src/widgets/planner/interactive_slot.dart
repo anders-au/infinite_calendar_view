@@ -1522,7 +1522,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           columnIndex: slot.columnIndex,
           initialStartDate: slot.initialStartDate,
           startDateTime: clampedStart,
-          endDateTime: clampedStart.add(Duration(minutes: _session!.snapDurationMin)),
+          duration: Duration(minutes: _session!.snapDurationMin),
         );
         widget.onChanged(resultSlot);
         return;
@@ -1545,7 +1545,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
         startDateTime: safeStart,
-        endDateTime: safeStart.add(Duration(minutes: _session!.snapDurationMin)),
+        duration: Duration(minutes: _session!.snapDurationMin),
       );
       widget.onChanged(resultSlot);
       return;
@@ -1561,7 +1561,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
       columnIndex: slot.columnIndex,
       initialStartDate: slot.initialStartDate,
       startDateTime: newStart,
-      endDateTime: newStart.add(Duration(minutes: _session!.snapDurationMin)),
+      duration: Duration(minutes: _session!.snapDurationMin),
     );
     widget.onChanged(resultSlot);
   }
@@ -1623,7 +1623,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
         startDateTime: newStart,
-        endDateTime: newStart.add(Duration(minutes: newDuration)),
+        duration: Duration(minutes: newDuration),
       );
       widget.onChanged(resultSlot);
     }
@@ -1686,7 +1686,7 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         columnIndex: slot.columnIndex,
         initialStartDate: slot.initialStartDate,
         startDateTime: _session!.snapStartDate,
-        endDateTime: _session!.snapStartDate.add(Duration(minutes: newDuration)),
+        duration: Duration(minutes: newDuration),
       );
       widget.onChanged(resultSlot);
     }

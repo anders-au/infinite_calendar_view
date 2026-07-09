@@ -132,7 +132,7 @@ class DayWidget extends StatelessWidget {
                 columnIndex: slotSelection.columnIndex,
                 initialStartDate: slotSelection.initialStartDate,
                 startDateTime: newStart,
-                endDateTime: newStart.add(Duration(minutes: slotSelection.durationInMinutes)),
+                duration: Duration(minutes: slotSelection.durationInMinutes),
               );
 
               // ── auto-scroll during long-press drag ──────────────────
@@ -545,6 +545,8 @@ class DefaultDayEvent extends StatelessWidget {
     this.verticalPadding = 4,
     this.eventMargin = const EdgeInsets.all(1),
     this.roundBorderRadius = 3,
+    this.hideLeftBorder = false,
+    this.hideRightBorder = false,
     this.onTap,
     this.onDoubleTap,
     this.onLongPress,
@@ -566,6 +568,15 @@ class DefaultDayEvent extends StatelessWidget {
   final double verticalPadding;
   final EdgeInsetsGeometry? eventMargin;
   final double roundBorderRadius;
+
+  /// When true, the left corners are flat (radius 0) to indicate the
+  /// event's start is off-screen — an "ongoing" event.
+  final bool hideLeftBorder;
+
+  /// When true, the right corners are flat (radius 0) to indicate the
+  /// event's end is off-screen — an "ongoing" event.
+  final bool hideRightBorder;
+
   final GestureTapCallback? onTap;
   final GestureTapDownCallback? onTapDown;
   final GestureTapUpCallback? onTapUp;
@@ -577,10 +588,18 @@ class DefaultDayEvent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final r = roundBorderRadius;
+
     return Container(
       margin: eventMargin,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(roundBorderRadius),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(hideLeftBorder ? 0 : r),
+          topRight: Radius.circular(hideRightBorder ? 0 : r),
+          bottomLeft: Radius.circular(hideLeftBorder ? 0 : r),
+          bottomRight: Radius.circular(hideRightBorder ? 0 : r),
+        ),
         child: Material(
           child: InkWell(
             onTap: onTap,

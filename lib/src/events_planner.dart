@@ -4,6 +4,7 @@ import 'package:android_gesture_exclusion/android_gesture_exclusion.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:infinite_calendar_view/src/physics/day_snapping_scroll_physics.dart';
 import 'package:infinite_calendar_view/src/utils/default_text.dart';
 
 import 'controller/events_controller.dart';
@@ -45,7 +46,9 @@ class EventsPlanner extends StatefulWidget {
     this.onVerticalScrollChange,
     this.horizontalScrollController,
     this.headerHorizontalScrollController,
-    this.horizontalScrollPhysics = const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast),
+    this.horizontalScrollPhysics = const BouncingScrollPhysics(
+      decelerationRate: ScrollDecelerationRate.fast,
+    ),
     this.verticalScrollPhysics,
     this.snapToDay = true,
     this.onAutomaticAdjustHorizontalScroll,
@@ -238,7 +241,8 @@ class EventsPlanner extends StatefulWidget {
   State createState() => EventsPlannerState();
 }
 
-class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMixin {
+class EventsPlannerState extends State<EventsPlanner>
+    with TickerProviderStateMixin {
   late ScrollController mainHorizontalController;
   late ScrollController headersHorizontalController;
   final topLeftCellValueNotifier = ValueNotifier<DateTime>(DateTime.now());
@@ -262,7 +266,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   late double heightPerMinuteScaleStart;
   late double mainVerticalControllerOffsetScaleStart;
   var _listenHorizontalScrollDayChange = true;
-  var _hasResolvedVisibleFirstDay = false;
   var _plannerPointerDownCount = 0;
   var _isKeyboardZoomActive = false;
   var _startColumnIndex = 0;
@@ -284,36 +287,54 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   ///   }
   /// });
   /// ```
-  final ValueNotifier<DragMode?> slotDragModeNotifier = ValueNotifier<DragMode?>(null);
+  final ValueNotifier<DragMode?> slotDragModeNotifier =
+      ValueNotifier<DragMode?>(null);
   final Object _plannerViewControllerOwner = Object();
 
-  PlannerTimeMapper get plannerTimeMapper =>
-      PlannerTimeMapper(heightPerMinute: heightPerMinute, cellGapHeight: widget.cellGapHeight, paintGapAfterLastHour: widget.paintGapAfterLastHour);
+  PlannerTimeMapper get plannerTimeMapper => PlannerTimeMapper(
+    heightPerMinute: heightPerMinute,
+    cellGapHeight: widget.cellGapHeight,
+    paintGapAfterLastHour: widget.paintGapAfterLastHour,
+  );
 
   @override
   void initState() {
     super.initState();
     heightPerMinute = widget.heightPerMinute;
     _controller = widget.controller;
-    initialDate = widget.initialDate?.withoutTime ?? widget.controller.focusedDay;
+    initialDate =
+        widget.initialDate?.withoutTime ?? widget.controller.focusedDay;
     if (widget.snapToWeekStart && widget.daysShowed == 7) {
       final wsd = widget.startOfWeekDay.clamp(1, 7);
       final delta = (initialDate.weekday - wsd) % 7;
-      initialDate = DateTime(initialDate.year, initialDate.month, initialDate.day - delta);
+      initialDate = DateTime(
+        initialDate.year,
+        initialDate.month,
+        initialDate.day - delta,
+      );
     }
     currentIndex = 0;
     _ownsMainHorizontalController = widget.horizontalScrollController == null;
-    _ownsHeadersHorizontalController = widget.headerHorizontalScrollController == null;
+    _ownsHeadersHorizontalController =
+        widget.headerHorizontalScrollController == null;
     _ownsMainVerticalController = widget.verticalScrollController == null;
 
-    mainHorizontalController = widget.horizontalScrollController ?? ScrollController();
-    headersHorizontalController = widget.headerHorizontalScrollController ?? ScrollController();
-    mainVerticalController = widget.verticalScrollController ?? ScrollController(initialScrollOffset: widget.initialVerticalScrollOffset);
-    _plannerViewController = widget.plannerViewController ?? PlannerViewController();
+    mainHorizontalController =
+        widget.horizontalScrollController ?? ScrollController();
+    headersHorizontalController =
+        widget.headerHorizontalScrollController ?? ScrollController();
+    mainVerticalController =
+        widget.verticalScrollController ??
+        ScrollController(
+          initialScrollOffset: widget.initialVerticalScrollOffset,
+        );
+    _plannerViewController =
+        widget.plannerViewController ?? PlannerViewController();
     _attachPlannerViewController();
 
     // synchronize horizontal scroll between days events / full day events / days header
-    if (widget.daysHeaderParam.daysHeaderVisibility || widget.fullDayParam.fullDayEventsBarVisibility) {
+    if (widget.daysHeaderParam.daysHeaderVisibility ||
+        widget.fullDayParam.fullDayEventsBarVisibility) {
       _syncHorizontalControllersListener = () {
         headersHorizontalController.jumpTo(mainHorizontalController.offset);
       };
@@ -327,7 +348,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       // Automatic adjust horizontal scroll to nearest day
       if (widget.snapToDay) {
         automaticScrollAdjustListener = getAutomaticScrollAdjustListener();
-        mainHorizontalController.position.isScrollingNotifier.addListener(automaticScrollAdjustListener!);
+        mainHorizontalController.position.isScrollingNotifier.addListener(
+          automaticScrollAdjustListener!,
+        );
       }
 
       // init vertical scroll listener when scroll stop
@@ -337,20 +360,25 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
             widget.onVerticalScrollChange?.call(mainVerticalController.offset);
           }
         };
-        mainVerticalController.position.isScrollingNotifier.addListener(_verticalScrollChangeStopListener!);
+        mainVerticalController.position.isScrollingNotifier.addListener(
+          _verticalScrollChangeStopListener!,
+        );
       }
 
       // limit day range
-      if (widget.minVerticalScrollOffset != null || widget.maxVerticalScrollOffset != null) {
+      if (widget.minVerticalScrollOffset != null ||
+          widget.maxVerticalScrollOffset != null) {
         _limitVerticalScrollListener = () {
           var minOffset = widget.minVerticalScrollOffset;
           var maxOffset = widget.maxVerticalScrollOffset;
           if (_plannerPointerDownCount < 2 && !_isSlotDragging) {
-            if (minOffset != null && mainVerticalController.offset < minOffset) {
+            if (minOffset != null &&
+                mainVerticalController.offset < minOffset) {
               mainVerticalController.jumpTo(minOffset);
             }
             if (maxOffset != null) {
-              var maxScrollExtent = mainVerticalController.position.maxScrollExtent;
+              var maxScrollExtent =
+                  mainVerticalController.position.maxScrollExtent;
               var dayOffset = plannerTimeMapper.totalDayHeight();
               var maxOffsetExtend = maxScrollExtent - (dayOffset - maxOffset);
               if (mainVerticalController.offset > maxOffsetExtend) {
@@ -371,16 +399,21 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         final today = now.withoutTime;
         final firstDay = initialDate.withoutTime;
         final lastDay = firstDay.addCalendarDays(widget.daysShowed - 1);
-        final todayVisible = !today.isBefore(firstDay) && !today.isAfter(lastDay);
+        final todayVisible =
+            !today.isBefore(firstDay) && !today.isAfter(lastDay);
 
         final double targetMinutes;
         if (todayVisible) {
           // Scroll to ~30 minutes ago for context.
-          targetMinutes = (now.hour * 60 + now.minute - 30).clamp(0, 24 * 60).toDouble();
+          targetMinutes = (now.hour * 60 + now.minute - 30)
+              .clamp(0, 24 * 60)
+              .toDouble();
         } else {
           targetMinutes = widget.initialScrollHour.clamp(0, 23) * 60.0;
         }
-        final rawOffset = plannerTimeMapper.minuteToY(targetMinutes) + widget.dayParam.dayTopPadding;
+        final rawOffset =
+            plannerTimeMapper.minuteToY(targetMinutes) +
+            widget.dayParam.dayTopPadding;
         _jumpToVerticalOffset(rawOffset);
       }
     });
@@ -391,7 +424,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     super.didUpdateWidget(oldWidget);
     if (oldWidget.plannerViewController != widget.plannerViewController) {
       _plannerViewController.detach(owner: _plannerViewControllerOwner);
-      _plannerViewController = widget.plannerViewController ?? PlannerViewController();
+      _plannerViewController =
+          widget.plannerViewController ?? PlannerViewController();
       _attachPlannerViewController();
     }
   }
@@ -403,7 +437,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _headerHorizontalDrag = null;
 
     if (_syncHorizontalControllersListener != null) {
-      mainHorizontalController.removeListener(_syncHorizontalControllersListener!);
+      mainHorizontalController.removeListener(
+        _syncHorizontalControllersListener!,
+      );
     }
     if (_dayChangingListener != null) {
       mainHorizontalController.removeListener(_dayChangingListener!);
@@ -412,12 +448,18 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       mainVerticalController.removeListener(_limitVerticalScrollListener!);
     }
 
-    if (mainHorizontalController.hasClients && automaticScrollAdjustListener != null) {
-      mainHorizontalController.position.isScrollingNotifier.removeListener(automaticScrollAdjustListener!);
+    if (mainHorizontalController.hasClients &&
+        automaticScrollAdjustListener != null) {
+      mainHorizontalController.position.isScrollingNotifier.removeListener(
+        automaticScrollAdjustListener!,
+      );
     }
 
-    if (mainVerticalController.hasClients && _verticalScrollChangeStopListener != null) {
-      mainVerticalController.position.isScrollingNotifier.removeListener(_verticalScrollChangeStopListener!);
+    if (mainVerticalController.hasClients &&
+        _verticalScrollChangeStopListener != null) {
+      mainVerticalController.position.isScrollingNotifier.removeListener(
+        _verticalScrollChangeStopListener!,
+      );
     }
 
     if (_ownsMainHorizontalController) {
@@ -435,7 +477,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
     super.dispose();
   }
-// listen mainHorizontalController and call onFirstDayChange when day change
+
+  // listen mainHorizontalController and call onFirstDayChange when day change
   void initDayChangingListener() {
     var halfDayWidth = (dayWidth / 2);
     var scroll = mainHorizontalController;
@@ -452,7 +495,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
           widget.onDayChange?.call(currentDay);
           widget.controller.updateFocusedDay(currentDay);
           topLeftCellValueNotifier.value = currentDay;
-          _hasResolvedVisibleFirstDay = true;
         }
       }
     };
@@ -466,7 +508,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     return () {
       final scroll = mainHorizontalController;
       // Only act when the scroll *appears* to have stopped.
-      if (!_listenHorizontalScrollDayChange || scroll.position.isScrollingNotifier.value) return;
+      if (!_listenHorizontalScrollDayChange ||
+          scroll.position.isScrollingNotifier.value)
+        return;
       if (_isSlotDragging || _plannerPointerDownCount > 0) return;
 
       // When a drag ends the notifier briefly flips to false before
@@ -496,7 +540,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     if (useWeekSnap) {
       nearestDayOffset = _snapToNearestWeekOffset(scroll.offset);
     } else if (widget.snapToDaysShowed) {
-      final pageIndex = (scroll.offset / (dayWidth * widget.daysShowed)).round();
+      final pageIndex = (scroll.offset / (dayWidth * widget.daysShowed))
+          .round();
       nearestDayOffset = pageIndex * dayWidth * widget.daysShowed;
     } else {
       nearestDayOffset = dayWidth * (scroll.offset / dayWidth).round();
@@ -551,17 +596,26 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   void _snapToBoundary(DateTime referenceDay) {
     if (!mainHorizontalController.hasClients || dayWidth == 0) return;
 
-    final useWeekSnap = widget.snapToDaysShowed && widget.snapToWeekStart && widget.daysShowed == 7;
+    final useWeekSnap =
+        widget.snapToDaysShowed &&
+        widget.snapToWeekStart &&
+        widget.daysShowed == 7;
 
     double target;
     if (useWeekSnap) {
       target = _snapToNearestWeekOffset(mainHorizontalController.offset);
     } else if (widget.snapToDaysShowed) {
       // Snap to the bracket that contains referenceDay.
-      target = _getBracketStartDayForTarget(referenceDay).difference(initialDate.withoutTime).inDays * dayWidth;
+      target =
+          _getBracketStartDayForTarget(
+            referenceDay,
+          ).difference(initialDate.withoutTime).inDays *
+          dayWidth;
     } else {
       // Snap to referenceDay itself as the first visible column.
-      target = referenceDay.withoutTime.difference(initialDate.withoutTime).inDays * dayWidth;
+      target =
+          referenceDay.withoutTime.difference(initialDate.withoutTime).inDays *
+          dayWidth;
     }
 
     if ((target - mainHorizontalController.offset).abs() > 0.5) {
@@ -596,7 +650,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       widget.onDayChange?.call(currentDay);
       widget.controller.updateFocusedDay(currentDay);
       topLeftCellValueNotifier.value = currentDay;
-      _hasResolvedVisibleFirstDay = true;
     }
   }
 
@@ -646,7 +699,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       // Suppress the automatic-snap listener while we drive the
       // animation ourselves so it doesn't fight us mid-flight.
       _listenHorizontalScrollDayChange = false;
-      await scroll.animateTo(targetOffset, duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+      await scroll.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+      );
       _listenHorizontalScrollDayChange = true;
     }
 
@@ -677,10 +734,15 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   @override
   Widget build(BuildContext context) {
     var dayParam = widget.dayParam;
-    var plannerHeight = plannerTimeMapper.totalDayHeight() + dayParam.dayTopPadding + dayParam.dayBottomPadding;
+    var plannerHeight =
+        plannerTimeMapper.totalDayHeight() +
+        dayParam.dayTopPadding +
+        dayParam.dayBottomPadding;
     var cellGapWidthPadding = widget.cellGapWidth / 2;
     var todayColor = dayParam.todayColor ?? getDefaultTodayColor(context);
-    var currentHourIndicatorColor = widget.currentHourIndicatorParam.currentHourIndicatorColor ?? getDefaultHourIndicatorColor(context);
+    var currentHourIndicatorColor =
+        widget.currentHourIndicatorParam.currentHourIndicatorColor ??
+        getDefaultHourIndicatorColor(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -696,20 +758,39 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
 
         final headerWidgets = [
           // top days header
-          if (widget.daysHeaderParam.daysHeaderVisibility || widget.columnsParam.columns > 1)
-            getHorizontalDaysIndicatorWidget(_startColumnIndex, onColumnIndexChanged),
+          if (widget.daysHeaderParam.daysHeaderVisibility ||
+              widget.columnsParam.columns > 1)
+            getHorizontalDaysIndicatorWidget(
+              _startColumnIndex,
+              onColumnIndexChanged,
+            ),
 
           // full day events
           if (widget.fullDayParam.fullDayEventsBarVisibility)
-            AndroidGestureExclusionContainer(child: getHorizontalFullDayEventsWidget(cellGapWidthPadding, todayColor)),
+            AndroidGestureExclusionContainer(
+              child: getHorizontalFullDayEventsWidget(
+                cellGapWidthPadding,
+                todayColor,
+              ),
+            ),
         ];
 
         return Column(
           children: [
-            if (headerWidgets.isNotEmpty) _buildHeaderHorizontalDragArea(Column(mainAxisSize: MainAxisSize.min, children: headerWidgets)),
+            if (headerWidgets.isNotEmpty)
+              _buildHeaderHorizontalDragArea(
+                Column(mainAxisSize: MainAxisSize.min, children: headerWidgets),
+              ),
 
             // days content
-            Expanded(child: getPlannerAndTimesWidget(plannerHeight, currentHourIndicatorColor, todayColor, cellGapWidthPadding)),
+            Expanded(
+              child: getPlannerAndTimesWidget(
+                plannerHeight,
+                currentHourIndicatorColor,
+                todayColor,
+                cellGapWidthPadding,
+              ),
+            ),
           ],
         );
       },
@@ -717,15 +798,21 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   DateTime getDayFromIndex(int index) {
-    return initialDate.addCalendarDays(widget.textDirection == TextDirection.ltr ? index : -index);
+    return initialDate.addCalendarDays(
+      widget.textDirection == TextDirection.ltr ? index : -index,
+    );
   }
 
   Color getDefaultTodayColor(BuildContext context) {
-    return context.isDarkMode ? Theme.of(context).colorScheme.surface.lighten(0.03) : Theme.of(context).colorScheme.primaryContainer.lighten(0.04);
+    return context.isDarkMode
+        ? Theme.of(context).colorScheme.surface.lighten(0.03)
+        : Theme.of(context).colorScheme.primaryContainer.lighten(0.04);
   }
 
   Color getDefaultHourIndicatorColor(BuildContext context) {
-    return context.isDarkMode ? Theme.of(context).colorScheme.primary.lighten() : Theme.of(context).colorScheme.primary.darken();
+    return context.isDarkMode
+        ? Theme.of(context).colorScheme.primary.lighten()
+        : Theme.of(context).colorScheme.primary.darken();
   }
 
   Widget _buildHeaderHorizontalDragArea(Widget child) {
@@ -744,7 +831,10 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       return;
     }
     _headerHorizontalDrag?.cancel();
-    _headerHorizontalDrag = mainHorizontalController.position.drag(details, _disposeHeaderHorizontalDrag);
+    _headerHorizontalDrag = mainHorizontalController.position.drag(
+      details,
+      _disposeHeaderHorizontalDrag,
+    );
   }
 
   void _onHeaderHorizontalDragUpdate(DragUpdateDetails details) {
@@ -765,7 +855,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _headerHorizontalDrag = null;
   }
 
-  Widget getPlannerAndTimesWidget(double plannerHeight, Color currentHourIndicatorColor, Color todayColor, double cellGapWidthPadding) {
+  Widget getPlannerAndTimesWidget(
+    double plannerHeight,
+    Color currentHourIndicatorColor,
+    Color todayColor,
+    double cellGapWidthPadding,
+  ) {
     var zoom = widget.pinchToZoomParam;
     var canZoom = zoom.pinchToZoom;
     return GestureDetector(
@@ -781,15 +876,23 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         child: IgnorePointer(
           ignoring: canZoom ? _plannerPointerDownCount > 1 : false,
           child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, dragDevices: PointerDeviceKind.values.toSet()),
+            behavior: ScrollConfiguration.of(context).copyWith(
+              scrollbars: false,
+              dragDevices: PointerDeviceKind.values.toSet(),
+            ),
             child: CustomScrollView(
-              physics: canZoom && (_plannerPointerDownCount > 1 || _isKeyboardZoomActive)
+              physics:
+                  canZoom &&
+                      (_plannerPointerDownCount > 1 || _isKeyboardZoomActive)
                   ? const NeverScrollableScrollPhysics()
                   : widget.verticalScrollPhysics,
               controller: mainVerticalController,
               slivers: [
                 SliverList(
-                  delegate: SliverChildBuilderDelegate(childCount: 1, (context, index) {
+                  delegate: SliverChildBuilderDelegate(childCount: 1, (
+                    context,
+                    index,
+                  ) {
                     final isLtr = widget.textDirection == TextDirection.ltr;
                     return SizedBox(
                       height: plannerHeight,
@@ -799,11 +902,24 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                           // the time column so that interactive slots
                           // overflow *under* the time indicators.
                           Positioned(
-                            left: isLtr ? widget.timesIndicatorsParam.timesIndicatorsWidth : 0,
-                            right: isLtr ? 0 : widget.timesIndicatorsParam.timesIndicatorsWidth,
+                            left: isLtr
+                                ? widget
+                                      .timesIndicatorsParam
+                                      .timesIndicatorsWidth
+                                : 0,
+                            right: isLtr
+                                ? 0
+                                : widget
+                                      .timesIndicatorsParam
+                                      .timesIndicatorsWidth,
                             top: 0,
                             bottom: 0,
-                            child: getPlannerWidget(todayColor, cellGapWidthPadding, plannerHeight, currentHourIndicatorColor),
+                            child: getPlannerWidget(
+                              todayColor,
+                              cellGapWidthPadding,
+                              plannerHeight,
+                              currentHourIndicatorColor,
+                            ),
                           ),
                           // left/right Timeline — rendered on top.
                           Positioned(
@@ -811,8 +927,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                             right: isLtr ? null : 0,
                             top: 0,
                             bottom: 0,
-                            width: widget.timesIndicatorsParam.timesIndicatorsWidth,
-                            child: getVerticalTimeIndicatorWidget(currentHourIndicatorColor),
+                            width: widget
+                                .timesIndicatorsParam
+                                .timesIndicatorsWidth,
+                            child: getVerticalTimeIndicatorWidget(
+                              currentHourIndicatorColor,
+                            ),
                           ),
                         ],
                       ),
@@ -827,16 +947,25 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     );
   }
 
-  Widget getPlannerWidget(Color todayColor, double cellGapWidthPadding, double plannerHeight, Color currentHourIndicatorColor) {
+  Widget getPlannerWidget(
+    Color todayColor,
+    double cellGapWidthPadding,
+    double plannerHeight,
+    Color currentHourIndicatorColor,
+  ) {
     final useWeekSnap = widget.snapToWeekStart && widget.daysShowed == 7;
     final physics = _plannerPointerDownCount > 1
         ? const NeverScrollableScrollPhysics()
         : _isSlotDragging
-        ? const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast)
+        ? const BouncingScrollPhysics(
+            decelerationRate: ScrollDecelerationRate.fast,
+          )
         : useWeekSnap
         ? const PageScrollPhysics()
         : DaySnappingScrollPhysics(
-            pageSize: widget.snapToDaysShowed ? dayWidth * widget.daysShowed : dayWidth,
+            pageSize: widget.snapToDaysShowed
+                ? dayWidth * widget.daysShowed
+                : dayWidth,
             parent: widget.horizontalScrollPhysics,
           );
 
@@ -849,7 +978,10 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
             return false;
           },
           child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, dragDevices: PointerDeviceKind.values.toSet()),
+            behavior: ScrollConfiguration.of(context).copyWith(
+              scrollbars: false,
+              dragDevices: PointerDeviceKind.values.toSet(),
+            ),
             child: InfiniteList(
               physics: physics,
               controller: mainHorizontalController,
@@ -876,14 +1008,22 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
                       dayParam: widget.dayParam,
                       columnsParam: widget.columnsParam,
                       startColumnIndex: _startColumnIndex,
-                      currentHourIndicatorParam: widget.currentHourIndicatorParam,
+                      currentHourIndicatorParam:
+                          widget.currentHourIndicatorParam,
                       currentHourIndicatorColor: currentHourIndicatorColor,
                       offTimesParam: widget.offTimesParam,
-                      showMultiDayEvents: !widget.fullDayParam.showMultiDayEvents,
+                      showMultiDayEvents:
+                          !widget.fullDayParam.showMultiDayEvents,
                       verticalScrollController: mainVerticalController,
                       horizontalScrollController: mainHorizontalController,
-                      viewportLeftInset: widget.textDirection == TextDirection.ltr ? widget.timesIndicatorsParam.timesIndicatorsWidth : 0,
-                      viewportRightInset: widget.textDirection == TextDirection.ltr ? 0 : widget.timesIndicatorsParam.timesIndicatorsWidth,
+                      viewportLeftInset:
+                          widget.textDirection == TextDirection.ltr
+                          ? widget.timesIndicatorsParam.timesIndicatorsWidth
+                          : 0,
+                      viewportRightInset:
+                          widget.textDirection == TextDirection.ltr
+                          ? 0
+                          : widget.timesIndicatorsParam.timesIndicatorsWidth,
                     );
                   },
                 );
@@ -902,10 +1042,17 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     if (slot == null) return const SizedBox.shrink();
 
     final paddedWidth = dayWidth - cellGapWidthPadding * 2;
-    final columnPositions = widget.columnsParam.getColumPositions(paddedWidth, slot.columnIndex);
+    final columnPositions = widget.columnsParam.getColumPositions(
+      paddedWidth,
+      slot.columnIndex,
+    );
 
-    final leftInset = widget.textDirection == TextDirection.ltr ? widget.timesIndicatorsParam.timesIndicatorsWidth : 0.0;
-    final rightInset = widget.textDirection == TextDirection.ltr ? 0.0 : widget.timesIndicatorsParam.timesIndicatorsWidth;
+    final leftInset = widget.textDirection == TextDirection.ltr
+        ? widget.timesIndicatorsParam.timesIndicatorsWidth
+        : 0.0;
+    final rightInset = widget.textDirection == TextDirection.ltr
+        ? 0.0
+        : widget.timesIndicatorsParam.timesIndicatorsWidth;
 
     // Wrap the user-provided config with planner-level state management.
     final userConfig = widget.dayParam.slotInteractionConfig;
@@ -913,8 +1060,8 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       stepMinutes: userConfig.stepMinutes,
       stepMinutesResolver: userConfig.stepMinutesResolver,
       enableShift: userConfig.enableShift,
-      enableExtendStart: userConfig.enableExtendStart,
-      enableExtendEnd: userConfig.enableExtendEnd,
+      enableResizeStart: userConfig.enableResizeStart,
+      enableResizeEnd: userConfig.enableResizeEnd,
       enableHorizontalAxis: userConfig.enableHorizontalAxis,
       enableVerticalAxis: userConfig.enableVerticalAxis,
       minDurationMinutes: userConfig.minDurationMinutes,
@@ -979,18 +1126,24 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     );
   }
 
-  VerticalTimeIndicatorWidget getVerticalTimeIndicatorWidget(Color currentHourIndicatorColor) {
+  VerticalTimeIndicatorWidget getVerticalTimeIndicatorWidget(
+    Color currentHourIndicatorColor,
+  ) {
     return VerticalTimeIndicatorWidget(
       textDirection: widget.textDirection,
       timesIndicatorsParam: widget.timesIndicatorsParam,
       heightPerMinute: heightPerMinute,
       plannerTimeMapper: plannerTimeMapper,
-      currentHourIndicatorHourVisibility: widget.currentHourIndicatorParam.currentHourIndicatorHourVisibility,
+      currentHourIndicatorHourVisibility:
+          widget.currentHourIndicatorParam.currentHourIndicatorHourVisibility,
       currentHourIndicatorColor: currentHourIndicatorColor,
     );
   }
 
-  HorizontalFullDayEventsWidget getHorizontalFullDayEventsWidget(double cellGapWidthPadding, Color todayColor) {
+  HorizontalFullDayEventsWidget getHorizontalFullDayEventsWidget(
+    double cellGapWidthPadding,
+    Color todayColor,
+  ) {
     return HorizontalFullDayEventsWidget(
       controller: _controller,
       textDirection: widget.textDirection,
@@ -1019,7 +1172,10 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     );
   }
 
-  HorizontalDaysIndicatorWidget getHorizontalDaysIndicatorWidget(int startColumnIndex, Function(int newStartColumnIndex) onColumnIndexChanged) {
+  HorizontalDaysIndicatorWidget getHorizontalDaysIndicatorWidget(
+    int startColumnIndex,
+    Function(int newStartColumnIndex) onColumnIndexChanged,
+  ) {
     return HorizontalDaysIndicatorWidget(
       textDirection: widget.textDirection,
       daysHeaderParam: widget.daysHeaderParam,
@@ -1087,7 +1243,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
   }
 
-  double _mapOffsetForNewHeightPerMinute({required double oldOffset, required double oldHeightPerMinute, required double newHeightPerMinute}) {
+  double _mapOffsetForNewHeightPerMinute({
+    required double oldOffset,
+    required double oldHeightPerMinute,
+    required double newHeightPerMinute,
+  }) {
     final oldMapper = PlannerTimeMapper(
       heightPerMinute: oldHeightPerMinute,
       cellGapHeight: widget.cellGapHeight,
@@ -1110,8 +1270,12 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
         if (!mainHorizontalController.hasClients) {
           return;
         }
-        mainHorizontalController.position.isScrollingNotifier.removeListener(automaticScrollAdjustListener!);
-        mainHorizontalController.position.isScrollingNotifier.addListener(automaticScrollAdjustListener!);
+        mainHorizontalController.position.isScrollingNotifier.removeListener(
+          automaticScrollAdjustListener!,
+        );
+        mainHorizontalController.position.isScrollingNotifier.addListener(
+          automaticScrollAdjustListener!,
+        );
       });
     }
   }
@@ -1189,13 +1353,17 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   bool _isDayAlreadyVisible(DateTime day) {
     final normalized = day.withoutTime;
     final firstVisibleDay = topLeftCellValueNotifier.value.withoutTime;
-    final lastVisibleDay = firstVisibleDay.addCalendarDays(widget.daysShowed - 1);
-    return !normalized.isBefore(firstVisibleDay) && !normalized.isAfter(lastVisibleDay);
+    final lastVisibleDay = firstVisibleDay.addCalendarDays(
+      widget.daysShowed - 1,
+    );
+    return !normalized.isBefore(firstVisibleDay) &&
+        !normalized.isAfter(lastVisibleDay);
   }
 
   double _timeToVerticalOffset(TimeOfDay time) {
     final minute = time.totalMinutes.toDouble();
-    final rawOffset = plannerTimeMapper.minuteToY(minute) + widget.dayParam.dayTopPadding;
+    final rawOffset =
+        plannerTimeMapper.minuteToY(minute) + widget.dayParam.dayTopPadding;
     return _alignVerticalOffsetToViewportAnchor(rawOffset);
   }
 
@@ -1226,8 +1394,14 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     return offset.clamp(min, max);
   }
 
-  Future<void> _animateToDate(DateTime date, Duration duration, Curve curve) async {
-    if (!context.mounted || !mainHorizontalController.hasClients || dayWidth == 0) {
+  Future<void> _animateToDate(
+    DateTime date,
+    Duration duration,
+    Curve curve,
+  ) async {
+    if (!context.mounted ||
+        !mainHorizontalController.hasClients ||
+        dayWidth == 0) {
       return;
     }
     // While a slot is being dragged, suppress bracket snapping so the
@@ -1242,15 +1416,20 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
     _listenHorizontalScrollDayChange = false;
     try {
-      final targetDay = widget.snapToDaysShowed ? _getBracketStartDayForTarget(date) : date.withoutTime;
+      final targetDay = widget.snapToDaysShowed
+          ? _getBracketStartDayForTarget(date)
+          : date.withoutTime;
       final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
       if ((offset - mainHorizontalController.offset).abs() < 0.001) {
         return;
       }
-      await mainHorizontalController.animateTo(offset, duration: duration, curve: curve);
+      await mainHorizontalController.animateTo(
+        offset,
+        duration: duration,
+        curve: curve,
+      );
       final day = targetDay;
       topLeftCellValueNotifier.value = day;
-      _hasResolvedVisibleFirstDay = true;
       widget.controller.updateFocusedDay(day);
       widget.onDayChange?.call(day);
     } finally {
@@ -1259,7 +1438,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   void _jumpToDate(DateTime date) {
-    if (!context.mounted || !mainHorizontalController.hasClients || dayWidth == 0) {
+    if (!context.mounted ||
+        !mainHorizontalController.hasClients ||
+        dayWidth == 0) {
       return;
     }
     // While a slot is being dragged, suppress bracket snapping so the
@@ -1274,7 +1455,9 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
       widget.controller.updateFocusedDay(date.withoutTime);
       return;
     }
-    final targetDay = widget.snapToDaysShowed ? _getBracketStartDayForTarget(date) : date.withoutTime;
+    final targetDay = widget.snapToDaysShowed
+        ? _getBracketStartDayForTarget(date)
+        : date.withoutTime;
     _listenHorizontalScrollDayChange = false;
     final offset = _clampHorizontalOffset(_dateToHorizontalOffset(targetDay));
     if ((offset - mainHorizontalController.offset).abs() < 0.001) {
@@ -1285,7 +1468,6 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _listenHorizontalScrollDayChange = true;
     final day = targetDay;
     topLeftCellValueNotifier.value = day;
-    _hasResolvedVisibleFirstDay = true;
     widget.controller.updateFocusedDay(day);
     widget.onDayChange?.call(day);
   }
@@ -1311,7 +1493,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     _jumpToDate(_getPagedTargetDay(false));
   }
 
-  Future<void> _animateToTime(TimeOfDay time, Duration duration, Curve curve) async {
+  Future<void> _animateToTime(
+    TimeOfDay time,
+    Duration duration,
+    Curve curve,
+  ) async {
     if (!context.mounted) {
       return;
     }
@@ -1324,7 +1510,11 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
 
     final offset = _clampVerticalOffset(_timeToVerticalOffset(time));
-    await mainVerticalController.animateTo(offset, duration: duration, curve: curve);
+    await mainVerticalController.animateTo(
+      offset,
+      duration: duration,
+      curve: curve,
+    );
   }
 
   void _jumpToTime(TimeOfDay time) {
@@ -1332,10 +1522,17 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
   }
 
   double _clampZoom(double newHeightPerMinute) {
-    return newHeightPerMinute.clamp(widget.pinchToZoomParam.pinchToZoomMinHeightPerMinute, widget.pinchToZoomParam.pinchToZoomMaxHeightPerMinute);
+    return newHeightPerMinute.clamp(
+      widget.pinchToZoomParam.pinchToZoomMinHeightPerMinute,
+      widget.pinchToZoomParam.pinchToZoomMaxHeightPerMinute,
+    );
   }
 
-  Future<void> _animateToZoom(double newHeightPerMinute, Duration duration, Curve curve) async {
+  Future<void> _animateToZoom(
+    double newHeightPerMinute,
+    Duration duration,
+    Curve curve,
+  ) async {
     final target = _clampZoom(newHeightPerMinute);
     if (duration <= Duration.zero) {
       _setHeightPerMinuteImmediately(target);
@@ -1343,12 +1540,21 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     }
 
     final start = heightPerMinute;
-    final animationController = AnimationController(vsync: this, duration: duration);
-    final animation = Tween<double>(begin: start, end: target).animate(CurvedAnimation(parent: animationController, curve: curve));
+    final animationController = AnimationController(
+      vsync: this,
+      duration: duration,
+    );
+    final animation = Tween<double>(
+      begin: start,
+      end: target,
+    ).animate(CurvedAnimation(parent: animationController, curve: curve));
     double previous = start;
     void listener() {
       final next = animation.value;
-      _setHeightPerMinuteImmediately(next, oldHeightPerMinuteOverride: previous);
+      _setHeightPerMinuteImmediately(
+        next,
+        oldHeightPerMinuteOverride: previous,
+      );
       previous = next;
     }
 
@@ -1359,11 +1565,20 @@ class EventsPlannerState extends State<EventsPlanner> with TickerProviderStateMi
     widget.pinchToZoomParam.onZoomChange?.call(heightPerMinute);
   }
 
-  void _setHeightPerMinuteImmediately(double newHeightPerMinute, {double? oldHeightPerMinuteOverride}) {
+  void _setHeightPerMinuteImmediately(
+    double newHeightPerMinute, {
+    double? oldHeightPerMinuteOverride,
+  }) {
     final double clamped = _clampZoom(newHeightPerMinute);
     final double oldHeight = oldHeightPerMinuteOverride ?? heightPerMinute;
-    final double oldOffset = mainVerticalController.hasClients ? mainVerticalController.offset : 0;
-    final double mappedOffset = _mapOffsetForNewHeightPerMinute(oldOffset: oldOffset, oldHeightPerMinute: oldHeight, newHeightPerMinute: clamped);
+    final double oldOffset = mainVerticalController.hasClients
+        ? mainVerticalController.offset
+        : 0;
+    final double mappedOffset = _mapOffsetForNewHeightPerMinute(
+      oldOffset: oldOffset,
+      oldHeightPerMinute: oldHeight,
+      newHeightPerMinute: clamped,
+    );
 
     setState(() {
       heightPerMinute = clamped;
@@ -1459,155 +1674,6 @@ class FullDayParam {
   final Curve allDayBarAnimationCurve;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SlotSelection — sealed base class for timed and all-day slot selections.
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// A transient UI placeholder for a slot the user is interactively creating
-/// or modifying.  Always stored in [EventsController.slotSelectionNotifier]
-/// which holds exactly one selection at a time.
-///
-/// Use `is` checks to branch on the concrete type:
-/// ```dart
-/// final s = controller.slotSelectionNotifier.value;
-/// if (s is TimedSlotSelection) { /* time-grid slot */ }
-/// if (s is AllDaySlotSelection)  { /* all-day-bar slot */ }
-/// ```
-sealed class SlotSelection {
-  /// The column index within the day (0 if single-column).
-  final int columnIndex;
-
-  /// The date (and optionally time) where the gesture started.
-  /// For [TimedSlotSelection] the time portion is meaningful;
-  /// for [AllDaySlotSelection] only the date matters.
-  final DateTime initialStartDate;
-
-  const SlotSelection({required this.columnIndex, required this.initialStartDate});
-
-  /// Whether this is an all-day selection (no time component).
-  bool get isAllDay;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// AllDaySlotSelection — the data model for an all-day slot selection.
-// ═══════════════════════════════════════════════════════════════════════════
-
-class AllDaySlotSelection extends SlotSelection {
-  /// The first day of the selection (time portion is ignored).
-  final DateTime startDate;
-
-  /// The last day of the selection, inclusive.
-  /// Equals [startDate] for a single-day selection.
-  final DateTime endDate;
-
-  /// Row index within the all-day bar for non-overlapping placement.
-  /// 0 = top row, 1 = next row, etc.
-  final int rowIndex;
-
-  const AllDaySlotSelection({
-    required super.columnIndex,
-    required super.initialStartDate,
-    required this.startDate,
-    required this.endDate,
-    this.rowIndex = 0,
-  });
-
-  @override
-  bool get isAllDay => true;
-
-  /// Number of days spanned by this selection (always ≥ 1).
-  int get dayCount => endDate.withoutTime.difference(startDate.withoutTime).inDays + 1;
-
-  /// Converts this all-day selection into a timed slot selection on
-  /// [startDate] with the given [defaultStart] time and [defaultDuration].
-  TimedSlotSelection toTimed({TimeOfDay defaultStart = const TimeOfDay(hour: 9, minute: 0), int defaultDuration = 60}) {
-    final startDt = DateTime(startDate.year, startDate.month, startDate.day, defaultStart.hour, defaultStart.minute);
-    return TimedSlotSelection(
-      columnIndex: columnIndex,
-      initialStartDate: initialStartDate,
-      startDateTime: startDt,
-      durationInMinutes: defaultDuration,
-    );
-  }
-
-  /// Creates a copy with the given fields replaced.
-  AllDaySlotSelection copyWith({int? columnIndex, DateTime? initialStartDate, DateTime? startDate, DateTime? endDate, int? rowIndex}) {
-    return AllDaySlotSelection(
-      columnIndex: columnIndex ?? this.columnIndex,
-      initialStartDate: initialStartDate ?? this.initialStartDate,
-      startDate: startDate ?? this.startDate,
-      endDate: endDate ?? this.endDate,
-      rowIndex: rowIndex ?? this.rowIndex,
-    );
-  }
-}
-
-class TimedSlotSelection extends SlotSelection {
-  /// Current interactive slot start date (includes time).
-  final DateTime startDateTime;
-
-  /// Current interactive slot duration in minutes.
-  final int durationInMinutes;
-
-  TimedSlotSelection({required super.columnIndex, required super.initialStartDate, required this.startDateTime, required this.durationInMinutes});
-
-  @override
-  bool get isAllDay => false;
-
-  /// The end date-time computed from [startDateTime] + [durationInMinutes].
-  DateTime get endDateTime => startDateTime.add(Duration(minutes: durationInMinutes));
-
-  /// The effective end, treating midnight (00:00:00) as the last
-  /// instant of the previous day.  Use this for all day-boundary
-  /// calculations — it ensures a slot ending at midnight is still
-  /// considered to end within the same calendar day.
-  DateTime get effectiveEndDateTime {
-    final end = endDateTime;
-    final isMidnight = end.hour == 0 && end.minute == 0 && end.second == 0 && end.millisecond == 0 && end.microsecond == 0;
-    return isMidnight ? end.subtract(const Duration(microseconds: 1)) : end;
-  }
-
-  /// Minute-of-day for the end of this slot.
-  ///
-  /// Returns a value in [1, 1440].  Midnight is mapped to 1440 (bottom
-  /// of the day) rather than 0 (top of the next day).  Full-day columns
-  /// in the middle of a multi-day span naturally wrap to 1440 as well.
-  int get endMinuteOfDay {
-    final total = startDateTime.totalMinutes + durationInMinutes;
-    final mod = total % PlannerTimeMapper.minutesPerDay;
-    return (mod == 0 && total > 0) ? PlannerTimeMapper.minutesPerDay : mod;
-  }
-
-  /// Number of calendar days spanned by this slot, always ≥ 1.
-  /// Uses [effectiveEndDateTime] so that a slot ending at midnight is
-  /// still treated as single-day (midnight belongs to the current day).
-  int get totalDaysSpanned => effectiveEndDateTime.withoutTime.difference(startDateTime.withoutTime).inDays + 1;
-
-  /// Converts this timed slot into an all-day slot.
-  /// The all-day slot spans from the date of [startDateTime] through the
-  /// date of the slot's end time (the next day if it crosses midnight).
-  AllDaySlotSelection toAllDay() {
-    final startDay = startDateTime.withoutTime;
-    final endDay = effectiveEndDateTime.withoutTime;
-    return AllDaySlotSelection(
-      columnIndex: columnIndex,
-      initialStartDate: initialStartDate,
-      startDate: startDay,
-      endDate: endDay.isAfter(startDay) ? endDay : startDay,
-    );
-  }
-
-  /// Creates a copy with the given fields replaced.
-  TimedSlotSelection copyWith({int? columnIndex, DateTime? initialStartDate, DateTime? startDateTime, int? durationInMinutes}) {
-    return TimedSlotSelection(
-      columnIndex: columnIndex ?? this.columnIndex,
-      initialStartDate: initialStartDate ?? this.initialStartDate,
-      startDateTime: startDateTime ?? this.startDateTime,
-      durationInMinutes: durationInMinutes ?? this.durationInMinutes,
-    );
-  }
-}
-
 class PinchToZoomParameters {
   const PinchToZoomParameters({
     this.pinchToZoom = true,
@@ -1655,7 +1721,8 @@ class CurrentHourIndicatorParam {
   });
 
   /// custom day painter for current hour
-  final CustomPainter Function(double heightPerMinute, bool isToday)? currentHourIndicatorCustomPainter;
+  final CustomPainter Function(double heightPerMinute, bool isToday)?
+  currentHourIndicatorCustomPainter;
 
   /// show current hour line and text
   final bool currentHourIndicatorLineVisibility;
@@ -1677,7 +1744,10 @@ class OffTimesParam {
 
   static const defaultOffTimesAllDaysRange = [
     OffTimeRange(TimeOfDay(hour: 0, minute: 0), TimeOfDay(hour: 7, minute: 0)),
-    OffTimeRange(TimeOfDay(hour: 18, minute: 0), TimeOfDay(hour: 24, minute: 0)),
+    OffTimeRange(
+      TimeOfDay(hour: 18, minute: 0),
+      TimeOfDay(hour: 24, minute: 0),
+    ),
   ];
 
   /// off time range for all day
@@ -1690,11 +1760,25 @@ class OffTimesParam {
   final Color? offTimesColor;
 
   /// off time custom painter
-  final CustomPainter Function(int column, DateTime day, bool isToday, double heightPerMinute, List<OffTimeRange> ranges, Color color)?
+  final CustomPainter Function(
+    int column,
+    DateTime day,
+    bool isToday,
+    double heightPerMinute,
+    List<OffTimeRange> ranges,
+    Color color,
+  )?
   offTimesAllDaysPainter;
 
   /// off time on day custom painter
-  final CustomPainter Function(int column, DateTime day, bool isToday, double heightPerMinute, List<OffTimeRange> ranges, Color color)?
+  final CustomPainter Function(
+    int column,
+    DateTime day,
+    bool isToday,
+    double heightPerMinute,
+    List<OffTimeRange> ranges,
+    Color color,
+  )?
   offTimesDayPainter;
 }
 
@@ -1743,7 +1827,11 @@ class DaysHeaderParam {
 }
 
 class TimesIndicatorsParam {
-  const TimesIndicatorsParam({this.timesIndicatorsWidth = 60.0, this.timesIndicatorsHorizontalPadding = 4.0, this.timesIndicatorsCustomPainter});
+  const TimesIndicatorsParam({
+    this.timesIndicatorsWidth = 60.0,
+    this.timesIndicatorsHorizontalPadding = 4.0,
+    this.timesIndicatorsCustomPainter,
+  });
 
   /// width of left times bar
   final double timesIndicatorsWidth;
@@ -1752,7 +1840,8 @@ class TimesIndicatorsParam {
   final double timesIndicatorsHorizontalPadding;
 
   /// custom times painter
-  final CustomPainter Function(double heightPerMinute)? timesIndicatorsCustomPainter;
+  final CustomPainter Function(double heightPerMinute)?
+  timesIndicatorsCustomPainter;
 }
 
 class ColumnsParam {
@@ -1793,14 +1882,22 @@ class ColumnsParam {
   final Icon? nextColumnsIcon;
 
   /// column custom builder in top bar
-  final Widget Function(DateTime day, bool isToday, int columIndex, double columnWidth)? columnHeaderBuilder;
+  final Widget Function(
+    DateTime day,
+    bool isToday,
+    int columIndex,
+    double columnWidth,
+  )?
+  columnHeaderBuilder;
 
   /// custom day painter for paint verticals lines
   final CustomPainter Function(double width, int colum)? columnCustomPainter;
 
   double getColumSize(double dayWidth, int columnIndex) {
     var columnWidthRatio = columnsWidthRatio?[columnIndex];
-    return columnWidthRatio != null ? dayWidth * columnWidthRatio : dayWidth / columns;
+    return columnWidthRatio != null
+        ? dayWidth * columnWidthRatio
+        : dayWidth / columns;
   }
 
   /// return column position in day width
@@ -1866,13 +1963,20 @@ class DayParam {
   final Color? dayColor;
 
   /// custom day painter for paint horizontal lines
-  final CustomPainter Function(double heightPerMinute, bool isToday)? dayCustomPainter;
+  final CustomPainter Function(double heightPerMinute, bool isToday)?
+  dayCustomPainter;
 
   /// event builder
   /// for listening event tap, it's possible to add gesture detector to dayEventBuilder
   /// example : dayEventBuilder : (event, height, width) => DefaultDayEvent(height: height, width: width, onTap...)
   /// or GestureDetector(child: DefaultEventWidget(...));
-  final Widget Function(Event event, double height, double width, double heightPerMinute)? dayEventBuilder;
+  final Widget Function(
+    Event event,
+    double height,
+    double width,
+    double heightPerMinute,
+  )?
+  dayEventBuilder;
 
   /// round date to nearest minutes date
   final int onSlotMinutesRound;
@@ -1881,13 +1985,28 @@ class DayParam {
   final bool onSlotRoundAlwaysBefore;
 
   /// event when tap on free slot on day
-  final void Function(int columnIndex, DateTime exactDateTime, DateTime roundDateTime)? onSlotTap;
+  final void Function(
+    int columnIndex,
+    DateTime exactDateTime,
+    DateTime roundDateTime,
+  )?
+  onSlotTap;
 
   /// event when long tap on free slot on day
-  final void Function(int columnIndex, DateTime exactDateTime, DateTime roundDateTime)? onSlotLongTap;
+  final void Function(
+    int columnIndex,
+    DateTime exactDateTime,
+    DateTime roundDateTime,
+  )?
+  onSlotLongTap;
 
   /// event when double tap on free slot on day
-  final void Function(int columnIndex, DateTime exactDateTime, DateTime roundDateTime)? onSlotDoubleTap;
+  final void Function(
+    int columnIndex,
+    DateTime exactDateTime,
+    DateTime roundDateTime,
+  )?
+  onSlotDoubleTap;
 
   /// Interactive slot configuration — controls creation triggers,
   /// drag/resize behaviour, visual style, and callbacks for the
@@ -1896,78 +2015,4 @@ class DayParam {
   /// Defaults to [SlotInteractionConfig] with all creation triggers
   /// disabled and standard drag/resize enabled.
   final SlotInteractionConfig slotInteractionConfig;
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// DaySnappingScrollPhysics — snaps flings to the nearest day-column
-// boundary.  Unlike PageScrollPhysics (which snaps to viewport-width
-// pages), this snaps to multiples of [pageSize], which is typically set
-// to [dayWidth] for single-day snapping or [dayWidth * daysShowed] for
-// bracket snapping.
-// ──────────────────────────────────────────────────────────────────────────
-
-class DaySnappingScrollPhysics extends ScrollPhysics {
-  /// The width of one snap unit in logical pixels.
-  final double pageSize;
-
-  const DaySnappingScrollPhysics({required this.pageSize, super.parent});
-
-  @override
-  DaySnappingScrollPhysics applyTo(ScrollPhysics? ancestor) {
-    return DaySnappingScrollPhysics(pageSize: pageSize, parent: buildParent(ancestor));
-  }
-
-  /// Minimum velocity (px/s) below which the scroll always snaps to the
-  /// nearest boundary rather than continuing in the fling direction.
-  static const double _directionalVelocityThreshold = 200.0;
-
-  @override
-  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
-    // Let the parent chain handle friction / bouncing.
-    final Simulation? simulation = super.createBallisticSimulation(position, velocity);
-
-    if (simulation == null) {
-      // No ballistic motion from the parent (e.g. the user lifted
-      // their finger without flinging).  Snap to the nearest
-      // boundary using the same spring as PageScrollPhysics so the
-      // feel is identical.
-      final snappedEnd = (position.pixels / pageSize).round() * pageSize;
-      if ((snappedEnd - position.pixels).abs() < tolerance.distance) {
-        return null;
-      }
-      return ScrollSpringSimulation(super.spring, position.pixels, snappedEnd, 0, tolerance: tolerance);
-    }
-
-    // Find where the simulation would naturally end.
-    final double naturalEnd = simulation.x(double.infinity);
-
-    // Determine the target boundary.
-    //
-    // When the user flings with enough velocity we commit to the
-    // boundary *ahead* of the natural resting point so momentum is
-    // respected rather than rubberbanding back to the previous page.
-    final double snappedEnd;
-    if (velocity > _directionalVelocityThreshold) {
-      // Strong forward fling — go to the next boundary.
-      snappedEnd = (naturalEnd / pageSize).ceil() * pageSize;
-    } else if (velocity < -_directionalVelocityThreshold) {
-      // Strong backward fling — go to the previous boundary.
-      snappedEnd = (naturalEnd / pageSize).floor() * pageSize;
-    } else {
-      // Gentle fling or near-stop — snap to whichever boundary is
-      // closest to the natural end.
-      snappedEnd = (naturalEnd / pageSize).round() * pageSize;
-    }
-
-    if ((snappedEnd - naturalEnd).abs() < tolerance.distance) {
-      // Already on or extremely close to a boundary — let the
-      // original friction simulation play out naturally.
-      return simulation;
-    }
-
-    // Drive from the current position to the snapped boundary with
-    // the same initial velocity the fling had.  Uses the same spring
-    // as PageScrollPhysics for a consistent feel across all snap modes.
-    return ScrollSpringSimulation(super.spring, position.pixels, snappedEnd, velocity, tolerance: tolerance);
-  }
 }

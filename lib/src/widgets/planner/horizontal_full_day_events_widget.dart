@@ -261,8 +261,8 @@ class _HorizontalFullDayEventsWidgetState extends State<HorizontalFullDayEventsW
           stepMinutes: param.stepMinutes,
           stepMinutesResolver: param.stepMinutesResolver,
           enableShift: param.enableShift,
-          enableExtendStart: param.enableExtendStart,
-          enableExtendEnd: param.enableExtendEnd,
+          enableResizeStart: param.enableResizeStart,
+          enableResizeEnd: param.enableResizeEnd,
           enableHorizontalAxis: param.enableHorizontalAxis,
           enableVerticalAxis: false, // all-day slots only move horizontally
           minDurationMinutes: 1, // 1 day minimum
@@ -540,7 +540,10 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       // event contents are never squashed during the final-day exit.
       final double left;
       final double width;
+      final bool isStartOffScreen;
+      final bool isEndOffScreen;
       if (daysSpan > 1 && naturalLeft < 0) {
+        isStartOffScreen = true;
         final minWidth = widget.dayWidth - pad * 2 - widget.fullDayParam.eventEndGap;
         if (naturalRight >= minWidth) {
           left = 0.0;
@@ -550,9 +553,13 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
           left = naturalRight - minWidth;
           width = minWidth;
         }
+        // End is off-screen when the clamped width is less than natural.
+        isEndOffScreen = width < naturalWidth;
       } else {
         left = naturalLeft;
         width = naturalWidth;
+        isStartOffScreen = false;
+        isEndOffScreen = false;
       }
 
       final double top = rowPadding + row * (eventHeight + rowPadding);
@@ -587,6 +594,8 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
                   description: event.description,
                   color: event.color,
                   textColor: event.textColor,
+                  hideLeftBorder: isStartOffScreen,
+                  hideRightBorder: isEndOffScreen,
                 ),
           ),
         ),

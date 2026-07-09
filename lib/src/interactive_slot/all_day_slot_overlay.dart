@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../utils/extension.dart';
 import 'handles/slot_handle.dart';
@@ -29,6 +30,7 @@ class AllDaySlotOverlay extends StatefulWidget {
     this.headerScrollController,
     this.mainContentScrollController,
     this.viewportLeftInset = 0,
+    this.viewportWidth,
     this.autoScrollThreshold = 40.0,
     this.autoScrollMaxSpeed = 8.0,
     this.onChanged,
@@ -70,6 +72,12 @@ class AllDaySlotOverlay extends StatefulWidget {
   /// Inset from the left viewport edge (time-indicator column width).
   final double viewportLeftInset;
 
+  /// Total pixel width of the viewport (the Stack containing this
+  /// overlay).  Used to detect when the slot's end extends past the
+  /// visible area so borders and handles can be suppressed.
+  /// When null (backward compat), end-off-screen detection is skipped.
+  final double? viewportWidth;
+
   /// Auto-scroll parameters.
   final double autoScrollThreshold;
   final double autoScrollMaxSpeed;
@@ -106,36 +114,41 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final slot = _slot;
     if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
 
-    final rect = _computeRect(slot);
-    if (rect.isEmpty) return const SizedBox.shrink();
+    final layout = _computeLayout(slot);
+    if (layout.rect.isEmpty) return const SizedBox.shrink();
 
     final isDragging = _session != null;
-    final accent = widget.config.accentColor ?? Theme.of(context).colorScheme.secondary;
+    final accent =
+        widget.config.accentColor ?? Theme.of(context).colorScheme.secondary;
 
     return Positioned(
-      left: rect.left,
-      top: rect.top,
-      width: rect.width,
-      height: rect.height,
+      left: layout.rect.left,
+      top: layout.rect.top,
+      width: layout.rect.width,
+      height: layout.rect.height,
       child: MouseRegion(
         cursor: _effectiveCursor,
         onHover: isDragging ? null : _onHover,
         onExit: isDragging ? null : (_) => _updateCursor(null),
-        child: _buildHandleStack(slot, accent),
+        child: _buildHandleStack(slot, accent, layout),
       ),
     );
   }
 
   // ── position computation ──────────────────────────────────────────────
 
-  Rect _computeRect(CalendarSlot slot) {
+  /// Computes the slot's pixel rect and off-screen status for the current
+  /// scroll offset.  The rect uses sticky-left clamping (matching
+  /// [MultiDayEventsOverlay]) so the start date always stays in view.
+  _AllDaySlotLayout _computeLayout(CalendarSlot slot) {
     final scrollOffset = widget.headerScrollController?.hasClients == true
         ? widget.headerScrollController!.positions.first.pixels
         : 0.0;
 
     final startDay = slot.startDateTime.withoutTime;
-    final startIndex =
-        startDay.difference(widget.initialDate.withoutTime).inDays;
+    final startIndex = startDay
+        .difference(widget.initialDate.withoutTime)
+        .inDays;
     final contentX = startIndex * widget.dayWidth;
     final viewportX = contentX - scrollOffset;
 
@@ -147,10 +160,20 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final naturalWidth =
         (daysSpan - 1) * widget.dayWidth + colWidth - widget.eventEndGap;
 
-    // Sticky-left clamping (matching MultiDayEventsOverlay).
+    // Completely off-screen? Return empty.
+    if (naturalLeft + naturalWidth <= 0 ||
+        naturalLeft >= widget.dayWidth * 30) {
+      return _AllDaySlotLayout.zero;
+    }
+
+    // Start is off-screen when the natural left edge is before the
+    // viewport (sticky-left will clamp to 0).
+    final isStartOffScreen = naturalLeft < 0 && naturalLeft + naturalWidth > 0;
+
+    // Sticky-left clamping.
     final double left;
     final double width;
-    if (naturalLeft < 0 && naturalLeft + naturalWidth > 0) {
+    if (isStartOffScreen) {
       left = 0.0;
       width = (naturalLeft + naturalWidth).clamp(1.0, naturalWidth);
     } else {
@@ -158,20 +181,55 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
       width = naturalWidth;
     }
 
-    if (naturalLeft + naturalWidth <= 0 || naturalLeft >= widget.dayWidth * 30) {
-      return Rect.zero;
+    // End is off-screen independently of the start: it happens when the
+    // natural right edge extends past the viewport's right edge.
+    // Use the explicit viewportWidth parameter when provided, otherwise
+    // derive it from the Stack ancestor's RenderBox size.
+    final bool isEndOffScreen;
+    final effectiveViewportWidth =
+        widget.viewportWidth ?? _stackWidthFromContext(context);
+    if (effectiveViewportWidth != null) {
+      isEndOffScreen = naturalLeft + naturalWidth > effectiveViewportWidth;
+    } else {
+      // Last-resort fallback: detect via width truncation from
+      // sticky-left clamping only.
+      isEndOffScreen = width < naturalWidth;
     }
 
     const rowPadding = 2.0;
-    final top = rowPadding; // rowIndex handled by not stacking for now
+    final top = rowPadding;
 
-    return Rect.fromLTRB(left, top, left + width, top + widget.eventHeight);
+    return _AllDaySlotLayout(
+      rect: Rect.fromLTRB(left, top, left + width, top + widget.eventHeight),
+      isStartOffScreen: isStartOffScreen,
+      isEndOffScreen: isEndOffScreen,
+    );
   }
 
   // ── handle stack ─────────────────────────────────────────────────────
 
-  Widget _buildHandleStack(CalendarSlot slot, Color accent) {
+  Widget _buildHandleStack(
+    CalendarSlot slot,
+    Color accent,
+    _AllDaySlotLayout layout,
+  ) {
     final zoneSize = widget.config.handleZoneSize;
+    final isStartOff = layout.isStartOffScreen;
+    final isEndOff = layout.isEndOffScreen;
+    final activeMode = _session?.mode;
+
+    // Hide handles when their edge is off-screen — the event is "ongoing"
+    // and should not show resize affordances on the clipped side. Keep the
+    // active handle mounted, though, so auto-scroll drags receive their
+    // normal pointer end/cancel lifecycle.
+    final showLeftHandle =
+        widget.config.enableResize &&
+        widget.config.enableResizeStart &&
+        (!isStartOff || activeMode == DragMode.extendStart);
+    final showRightHandle =
+        widget.config.enableResize &&
+        widget.config.enableResizeEnd &&
+        (!isEndOff || activeMode == DragMode.extendEnd);
 
     return Stack(
       clipBehavior: Clip.none,
@@ -184,6 +242,10 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
               config: widget.config,
               accentColor: accent,
               isDragging: _session != null,
+              hideLeftBorder: isStartOff,
+              hideRightBorder: isEndOff,
+              hideLeftHandle: !showLeftHandle,
+              hideRightHandle: !showRightHandle,
             ),
           ),
         ),
@@ -192,22 +254,22 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
         // competes with the resize zones in the gesture arena. ────
         if (widget.config.enableShift)
           Positioned(
-            left: widget.config.enableExtendStart ? zoneSize : 0,
+            left: showLeftHandle ? zoneSize : 0,
             top: 0,
-            right: widget.config.enableExtendEnd ? zoneSize : 0,
+            right: showRightHandle ? zoneSize : 0,
             bottom: 0,
             child: SlotHandleZone(
-            dragMode: DragMode.shift,
-            config: widget.config,
-            onDragStart: (mode) => _onDragStart(mode),
-            onDragUpdate: _onDragUpdate,
-            onDragEnd: _onDragEnd,
-            onTap: () => widget.config.onTap?.call(slot),
+              dragMode: DragMode.shift,
+              config: widget.config,
+              onDragStart: (mode) => _onDragStart(mode),
+              onDragUpdate: _onDragUpdate,
+              onDragEnd: _onDragEnd,
+              onTap: () => widget.config.onTap?.call(slot),
+            ),
           ),
-        ),
 
         // ── left handle (extend start) ─────────────────────────
-        if (widget.config.enableResize && widget.config.enableExtendStart)
+        if (showLeftHandle)
           Positioned(
             left: 0,
             top: 0,
@@ -223,7 +285,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
           ),
 
         // ── right handle (extend end) ──────────────────────────
-        if (widget.config.enableResize && widget.config.enableExtendEnd)
+        if (showRightHandle)
           Positioned(
             right: 0,
             top: 0,
@@ -239,43 +301,45 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
           ),
 
         // ── handle pills ───────────────────────────────────────
-        if (widget.config.enableResize && widget.config.showHandles && widget.config.enableExtendStart)
+        if (showLeftHandle && widget.config.showHandles)
           Positioned(
             left: 6,
             top: 6,
             bottom: 6,
-            child:IgnorePointer(
-            child:  Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                width: 4,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: BorderRadius.circular(3),
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  width: 4,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
                 ),
               ),
             ),
-          ),),
+          ),
 
-        if (widget.config.enableResize && widget.config.showHandles && widget.config.enableExtendEnd)
+        if (showRightHandle && widget.config.showHandles)
           Positioned(
             right: 6,
             top: 6,
             bottom: 6,
             child: IgnorePointer(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Container(
-                width: 4,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: BorderRadius.circular(3),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  width: 4,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
                 ),
               ),
             ),
-          ),)
+          ),
       ],
     );
   }
@@ -290,24 +354,48 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final localX = renderBox.globalToLocal(event.position).dx;
     final width = renderBox.size.width;
 
-    if (!widget.config.enableExtendStart && !widget.config.enableExtendEnd) {
+    if (!widget.config.enableResizeStart && !widget.config.enableResizeEnd) {
       _updateCursor(SystemMouseCursors.grab);
       return;
     }
 
-    if (widget.config.enableExtendStart && localX < _resizeZoneSize) {
-      _updateCursor(SystemMouseCursors.resizeLeft);
-    } else if (widget.config.enableExtendEnd &&
-        localX > width - _resizeZoneSize) {
-      _updateCursor(SystemMouseCursors.resizeRight);
-    } else {
-      _updateCursor(SystemMouseCursors.grab);
+    final slot = _slot;
+    if (slot != null) {
+      final layout = _computeLayout(slot);
+      final showLeft =
+          widget.config.enableResizeStart && !layout.isStartOffScreen;
+      final showRight = widget.config.enableResizeEnd && !layout.isEndOffScreen;
+
+      if (showLeft && localX < _resizeZoneSize) {
+        _updateCursor(SystemMouseCursors.resizeLeft);
+        return;
+      }
+      if (showRight && localX > width - _resizeZoneSize) {
+        _updateCursor(SystemMouseCursors.resizeRight);
+        return;
+      }
     }
+
+    _updateCursor(SystemMouseCursors.grab);
   }
 
   void _updateCursor(MouseCursor? cursor) {
-    if (cursor != null && _effectiveCursor != cursor) {
+    if (cursor == null || _effectiveCursor == cursor) return;
+
+    if (!mounted) {
+      _effectiveCursor = cursor;
+      return;
+    }
+
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle) {
       setState(() => _effectiveCursor = cursor);
+    } else {
+      _effectiveCursor = cursor;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
     }
   }
 
@@ -384,10 +472,27 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
 
   Rect? _viewportBounds() {
     // Reuse the same viewport detection as SlotOverlay.
-    return _findViewportBounds(
-      context,
-      leftInset: widget.viewportLeftInset,
-    );
+    return _findViewportBounds(context, leftInset: widget.viewportLeftInset);
+  }
+
+  /// Walks up the render tree from [context] to find the nearest Stack
+  /// ancestor's RenderBox and returns its width.  Used as a fallback for
+  /// [viewportWidth] to detect when the slot's end is off-screen right.
+  static double? _stackWidthFromContext(BuildContext context) {
+    RenderObject? current = context.findRenderObject();
+    // Step past our own RenderBox (which is the Positioned wrapper).
+    if (current != null) {
+      current = current.parent;
+    }
+    // Walk up until we find a RenderBox whose corresponding widget is a
+    // Stack (or until we run out of ancestors).
+    while (current != null) {
+      if (current is RenderBox && current.hasSize) {
+        return current.size.width;
+      }
+      current = current.parent;
+    }
+    return null;
   }
 }
 
@@ -458,4 +563,32 @@ Rect? _findViewportBounds(BuildContext context, {double leftInset = 0}) {
   } catch (_) {
     return null;
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Layout helper — bundles the computed rect with off-screen status flags.
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _AllDaySlotLayout {
+  const _AllDaySlotLayout({
+    required this.rect,
+    required this.isStartOffScreen,
+    required this.isEndOffScreen,
+  });
+
+  static const _AllDaySlotLayout zero = _AllDaySlotLayout(
+    rect: Rect.zero,
+    isStartOffScreen: false,
+    isEndOffScreen: false,
+  );
+
+  final Rect rect;
+
+  /// True when the slot's start day is before the visible viewport
+  /// (sticky-left clamping is active).
+  final bool isStartOffScreen;
+
+  /// True when the slot's end day is beyond the visible viewport
+  /// (the right side has been clipped).
+  final bool isEndOffScreen;
 }

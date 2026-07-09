@@ -19,6 +19,10 @@ class SlotRenderer extends StatelessWidget {
     required this.config,
     this.accentColor,
     this.isDragging = false,
+    this.hideLeftBorder = false,
+    this.hideRightBorder = false,
+    this.hideLeftHandle,
+    this.hideRightHandle,
   });
 
   final CalendarSlot slot;
@@ -26,20 +30,63 @@ class SlotRenderer extends StatelessWidget {
   final Color? accentColor;
   final bool isDragging;
 
+  /// When true, the left border and left radius are suppressed (all-day
+  /// pills only).  Set when the slot's start date is off-screen left,
+  /// indicating an "ongoing" event.
+  final bool hideLeftBorder;
+
+  /// When true, the right border and right radius are suppressed (all-day
+  /// pills only).  Set when the slot's end date is off-screen right,
+  /// indicating an "ongoing" event.
+  final bool hideRightBorder;
+
+  /// When provided, controls date-label padding independently from the
+  /// all-day pill border state.
+  final bool? hideLeftHandle;
+  final bool? hideRightHandle;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accent = accentColor ?? config.accentColor ?? theme.colorScheme.secondary;
+    final accent =
+        accentColor ?? config.accentColor ?? theme.colorScheme.secondary;
 
     if (slot.isAllDay) {
-      return _AllDayPill(accent: accent, borderRadius: config.slotBorderRadius, isDragging: isDragging, child: config.showDefaultSlotText ? _AllDayLabels(slot: slot, accent: accent, config: config) : null);
+      return _AllDayPill(
+        accent: accent,
+        borderRadius: config.slotBorderRadius,
+        isDragging: isDragging,
+        hideLeftBorder: hideLeftBorder,
+        hideRightBorder: hideRightBorder,
+        child: config.showDefaultSlotText
+            ? _AllDayLabels(
+                slot: slot,
+                accent: accent,
+                config: config,
+                hideLeftHandle: hideLeftHandle ?? hideLeftBorder,
+                hideRightHandle: hideRightHandle ?? hideRightBorder,
+              )
+            : null,
+      );
     }
 
     if (slot.totalDaysSpanned > 1) {
-      return _MultiDayBody(accent: accent, borderRadius: config.slotBorderRadius, isDragging: isDragging, slot: slot, config: config);
+      return _MultiDayBody(
+        accent: accent,
+        borderRadius: config.slotBorderRadius,
+        isDragging: isDragging,
+        slot: slot,
+        config: config,
+      );
     }
 
-    return _SingleDayBody(accent: accent, borderRadius: config.slotBorderRadius, isDragging: isDragging, slot: slot, config: config);
+    return _SingleDayBody(
+      accent: accent,
+      borderRadius: config.slotBorderRadius,
+      isDragging: isDragging,
+      slot: slot,
+      config: config,
+    );
   }
 }
 
@@ -79,17 +126,36 @@ class _SlotBody extends StatelessWidget {
           )
         : Border.all(color: accent, width: 2);
 
-    final topRadius = hideTopBorder ? Radius.zero : Radius.circular(borderRadius);
-    final bottomRadius = hideBottomBorder ? Radius.zero : Radius.circular(borderRadius);
+    final topRadius = hideTopBorder
+        ? Radius.zero
+        : Radius.circular(borderRadius);
+    final bottomRadius = hideBottomBorder
+        ? Radius.zero
+        : Radius.circular(borderRadius);
 
     return DecoratedBox(
       decoration: BoxDecoration(
         color: fillColor,
         border: effectiveBorder,
-        borderRadius: BorderRadius.vertical(top: topRadius, bottom: bottomRadius),
+        borderRadius: BorderRadius.vertical(
+          top: topRadius,
+          bottom: bottomRadius,
+        ),
         boxShadow: isDragging
-            ? [BoxShadow(color: accent.withAlpha(70), blurRadius: 10, offset: const Offset(0, 3))]
-            : [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
+            ? [
+                BoxShadow(
+                  color: accent.withAlpha(70),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: accent.withAlpha(25),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
       ),
       child: child ?? const SizedBox.expand(),
     );
@@ -124,12 +190,27 @@ class _SingleDayBody extends StatelessWidget {
 
     final child = config.showDefaultSlotText
         ? Padding(
-            padding: EdgeInsets.fromLTRB(12, handlesVisible ? _handlePadding : 7, 12, handlesVisible ? _handlePadding : 7),
-            child: _TimeLabels(slot: slot, accent: accent, config: config, theme: theme),
+            padding: EdgeInsets.fromLTRB(
+              12,
+              handlesVisible ? _handlePadding : 7,
+              12,
+              handlesVisible ? _handlePadding : 7,
+            ),
+            child: _TimeLabels(
+              slot: slot,
+              accent: accent,
+              config: config,
+              theme: theme,
+            ),
           )
         : null;
 
-    return _SlotBody(accent: accent, borderRadius: borderRadius, isDragging: isDragging, child: child);
+    return _SlotBody(
+      accent: accent,
+      borderRadius: borderRadius,
+      isDragging: isDragging,
+      child: child,
+    );
   }
 }
 
@@ -282,7 +363,11 @@ class _MultiDayBody extends StatelessWidget {
   Widget build(BuildContext context) {
     // Multi-day timed slots render as a single continuous filled area.
     // Per-segment borders are handled by the overlay positioning.
-    return _SlotBody(accent: accent, borderRadius: borderRadius, isDragging: isDragging);
+    return _SlotBody(
+      accent: accent,
+      borderRadius: borderRadius,
+      isDragging: isDragging,
+    );
   }
 }
 
@@ -291,24 +376,77 @@ class _MultiDayBody extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _AllDayPill extends StatelessWidget {
-  const _AllDayPill({required this.accent, required this.borderRadius, this.isDragging = false, this.child});
+  const _AllDayPill({
+    required this.accent,
+    required this.borderRadius,
+    this.isDragging = false,
+    this.child,
+    this.hideLeftBorder = false,
+    this.hideRightBorder = false,
+  });
 
   final Color accent;
   final double borderRadius;
   final bool isDragging;
   final Widget? child;
+  final bool hideLeftBorder;
+  final bool hideRightBorder;
 
   @override
   Widget build(BuildContext context) {
     final fillColor = accent.withAlpha(30);
+    final side = BorderSide(color: accent, width: 2);
+    final none = BorderSide.none;
+
+    // When a side is off-screen, suppress its border and radius to
+    // indicate the event is "ongoing" beyond the visible viewport.
+    final effectiveBorder = (hideLeftBorder || hideRightBorder)
+        ? Border(
+            top: side,
+            bottom: side,
+            left: hideLeftBorder ? none : side,
+            right: hideRightBorder ? none : side,
+          )
+        : Border.all(color: accent, width: 2);
+
+    final topLeft = hideLeftBorder
+        ? Radius.zero
+        : Radius.circular(borderRadius);
+    final topRight = hideRightBorder
+        ? Radius.zero
+        : Radius.circular(borderRadius);
+    final bottomLeft = hideLeftBorder
+        ? Radius.zero
+        : Radius.circular(borderRadius);
+    final bottomRight = hideRightBorder
+        ? Radius.zero
+        : Radius.circular(borderRadius);
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: fillColor,
-        border: Border.all(color: accent, width: 2),
-        borderRadius: BorderRadius.circular(borderRadius),
+        border: effectiveBorder,
+        borderRadius: BorderRadius.only(
+          topLeft: topLeft,
+          topRight: topRight,
+          bottomLeft: bottomLeft,
+          bottomRight: bottomRight,
+        ),
         boxShadow: isDragging
-            ? [BoxShadow(color: accent.withAlpha(70), blurRadius: 10, offset: const Offset(0, 3))]
-            : [BoxShadow(color: accent.withAlpha(25), blurRadius: 4, offset: const Offset(0, 1))],
+            ? [
+                BoxShadow(
+                  color: accent.withAlpha(70),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: accent.withAlpha(25),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
       ),
       child: child ?? const SizedBox.expand(),
     );
@@ -320,7 +458,12 @@ class _AllDayPill extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _TimeLabels extends StatelessWidget {
-  const _TimeLabels({required this.slot, required this.accent, required this.config, required this.theme});
+  const _TimeLabels({
+    required this.slot,
+    required this.accent,
+    required this.config,
+    required this.theme,
+  });
 
   final CalendarSlot slot;
   final Color accent;
@@ -337,12 +480,28 @@ class _TimeLabels extends StatelessWidget {
       children: [
         FittedBox(
           fit: BoxFit.scaleDown,
-          child: Text(startText, textAlign: TextAlign.center, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 12)),
+          child: Text(
+            startText,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: accent,
+              fontSize: 12,
+            ),
+          ),
         ),
         const Spacer(),
         FittedBox(
           fit: BoxFit.scaleDown,
-          child: Text(endText, textAlign: TextAlign.center, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 12)),
+          child: Text(
+            endText,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: accent,
+              fontSize: 12,
+            ),
+          ),
         ),
       ],
     );
@@ -365,11 +524,25 @@ class _TimeLabels extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 
 class _AllDayLabels extends StatelessWidget {
-  const _AllDayLabels({required this.slot, required this.accent, required this.config});
+  const _AllDayLabels({
+    required this.slot,
+    required this.accent,
+    required this.config,
+    this.hideLeftHandle = false,
+    this.hideRightHandle = false,
+  });
 
   final CalendarSlot slot;
   final Color accent;
   final SlotInteractionConfig config;
+
+  /// When true, the left handle is not visible (start off-screen) so
+  /// no extra padding is needed on that side.
+  final bool hideLeftHandle;
+
+  /// When true, the right handle is not visible (end off-screen) so
+  /// no extra padding is needed on that side.
+  final bool hideRightHandle;
 
   @override
   Widget build(BuildContext context) {
@@ -384,7 +557,11 @@ class _AllDayLabels extends StatelessWidget {
           return Center(
             child: Text(
               _formatDate(slot.startDateTime),
-              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: accent,
+                fontSize: 11,
+              ),
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -393,12 +570,15 @@ class _AllDayLabels extends StatelessWidget {
         }
 
         // Shift text inward when resize handles are visible so labels
-        // don't overlap the handle pills.
+        // don't overlap the handle pills.  Skip when the handle is
+        // hidden because that side is off-screen.
         final handlePad = config.handleZoneSize;
-        final leftPad = config.enableExtendStart && config.showHandles
+        final leftPad =
+            config.enableResizeStart && config.showHandles && !hideLeftHandle
             ? handlePad
             : 4.0;
-        final rightPad = config.enableExtendEnd && config.showHandles
+        final rightPad =
+            config.enableResizeEnd && config.showHandles && !hideRightHandle
             ? handlePad
             : 4.0;
 
@@ -410,15 +590,25 @@ class _AllDayLabels extends StatelessWidget {
                 child: Text(
                   _formatDate(slot.startDateTime),
                   textAlign: .start,
-                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: accent,
+                    fontSize: 11,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               Expanded(
                 child: Text(
-                  _formatDate(slot.endDateTime.subtract(const Duration(days: 1))),
-                  style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accent, fontSize: 11),
+                  _formatDate(
+                    slot.endDateTime.subtract(const Duration(days: 1)),
+                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: accent,
+                    fontSize: 11,
+                  ),
                   textAlign: TextAlign.end,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -432,7 +622,20 @@ class _AllDayLabels extends StatelessWidget {
   }
 
   static String _formatDate(DateTime date) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return '${months[date.month - 1]} ${date.day}';
   }
 }
