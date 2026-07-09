@@ -1093,7 +1093,11 @@ class EventsPlannerState extends State<EventsPlanner>
         userConfig.onDragStart?.call(mode);
       },
       onDragEnd: (mode) {
-        setState(() => _isSlotDragging = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _isSlotDragging = false);
+          }
+        });
         slotDragModeNotifier.value = null;
         userConfig.onDragEnd?.call(mode);
       },
@@ -1163,7 +1167,11 @@ class EventsPlannerState extends State<EventsPlanner>
         slotDragModeNotifier.value = mode;
       },
       onSlotDragEnd: (mode) {
-        setState(() => _isSlotDragging = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() => _isSlotDragging = false);
+          }
+        });
         slotDragModeNotifier.value = null;
         _syncCurrentDayFromScroll();
         _snapToNearestDayHorizontal();

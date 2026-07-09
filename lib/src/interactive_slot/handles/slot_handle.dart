@@ -230,11 +230,16 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
         // Still in the hold phase — check if the user moved too far.
         final delta = event.position - _startGlobal!;
         if (delta.distance > dragThreshold) {
-          // User swiped before the long-press duration → reject so
-          // the scroll view can take over.
+          // User moved before the long-press duration — accept
+          // immediately.  Rejecting here allows the gesture to fall
+          // through to parent widgets which may interpret it as a
+          // regular long-press (e.g. resetting the start day).
+          // Accepting immediately absorbs the gesture and starts
+          // the drag, avoiding that frustration.
           _cancelDeadline();
-          resolve(GestureDisposition.rejected);
-          _finish(event.pointer);
+          _dragStarted = true;
+          resolve(GestureDisposition.accepted);
+          onStart(preSetMode);
           return;
         }
         // Within wiggle-room — keep waiting for the timer.
@@ -443,7 +448,15 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget._isEnabled) return widget.child ?? const SizedBox.shrink();
+    if (!widget._isEnabled) {
+      // Absorb gestures even when this zone is disabled to prevent
+      // them from falling through to parent widgets (e.g. DayWidget
+      // which would reset the start day on long-press).
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        child: widget.child ?? const SizedBox.expand(),
+      );
+    }
 
     final r = _recognizer!;
 

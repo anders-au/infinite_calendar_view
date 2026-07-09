@@ -19,7 +19,7 @@ class PlannerViewController {
   PlannerDateVisibleGetter? _isDateVisibleGetter;
   PlannerTodayVisibleGetter? _isTodayVisibleGetter;
   Object? _attachmentOwner;
-  double _verticalViewportAnchor = 0.2;
+  double _verticalViewportAnchor = 0.3;
 
   /// Whether this controller is currently attached to an [EventsPlanner].
   bool get isAttached => _jumpToDateAction != null;
@@ -30,7 +30,7 @@ class PlannerViewController {
   /// Vertical alignment anchor used by time-based navigation.
   ///
   /// `0` aligns target to the top edge, `0.5` to the middle, and `1` to the
-  /// bottom edge. Defaults to `0.2` (20% from top).
+  /// bottom edge. Defaults to `0.4` (40% from top).
   double get verticalViewportAnchor => _verticalViewportAnchor;
 
   set verticalViewportAnchor(double value) {

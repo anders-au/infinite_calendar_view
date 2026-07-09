@@ -122,6 +122,12 @@ class _SlotOverlayState extends State<SlotOverlay> {
   /// jumping to the slot's start.
   int? _shiftDragColumnIndex;
 
+  /// The last known global pointer position during a drag.  Used on
+  /// drag-end to decide whether the drag point is inside the viewport —
+  /// when it is, we skip auto-scroll reconciliation to avoid excessive
+  /// correction.
+  Offset? _lastDragGlobalPosition;
+
   CalendarSlot? get _slot => widget.slotNotifier.value;
 
   @override
@@ -572,6 +578,10 @@ class _SlotOverlayState extends State<SlotOverlay> {
       widget.onChanged?.call(updated);
     }
 
+    // Track the last pointer position so _onDragEnd can decide whether
+    // the drag point is still inside the viewport.
+    _lastDragGlobalPosition = details.globalPosition;
+
     // Keep auto-scroll alive — the timer fires independently.
     final bounds = _viewportBounds();
     if (bounds != null) {
@@ -586,21 +596,32 @@ class _SlotOverlayState extends State<SlotOverlay> {
 
     DateTime? keepInView;
     if (mode != null && _slot != null) {
-      keepInView = switch (mode) {
-        DragMode.extendEnd => _slot!.endDateTime,
-        DragMode.extendStart => _slot!.startDateTime,
-        DragMode.shift =>
-          // When the user dragged from a non-start column of a multi-day
-          // slot, keep that relative column on screen — not blindly the
-          // start, which the user wasn't focused on.
-          dragCol != null && dragCol > 0
-              ? _slot!.startDateTime.add(Duration(days: dragCol))
-              : _slot!.startDateTime,
-      };
+      // Only request auto-scroll reconciliation when the drag point
+      // is outside the current viewport.  If the user released inside
+      // the visible area there is nothing to correct.
+      final bounds = _viewportBounds();
+      final lastPos = _lastDragGlobalPosition;
+      final isDragPointInViewport =
+          bounds != null && lastPos != null && bounds.contains(lastPos);
+
+      if (!isDragPointInViewport) {
+        keepInView = switch (mode) {
+          DragMode.extendEnd => _slot!.endDateTime,
+          DragMode.extendStart => _slot!.startDateTime,
+          DragMode.shift =>
+            // When the user dragged from a non-start column of a multi-day
+            // slot, keep that relative column on screen — not blindly the
+            // start, which the user wasn't focused on.
+            dragCol != null && dragCol > 0
+                ? _slot!.startDateTime.add(Duration(days: dragCol))
+                : _slot!.startDateTime,
+        };
+      }
     }
     _session = null;
     _autoScroller?.dispose();
     _autoScroller = null;
+    _lastDragGlobalPosition = null;
     _updateCursor(SystemMouseCursors.basic);
     widget.onDragEnd?.call(keepInView, mode);
     widget.config.onDragEnd?.call(mode);
