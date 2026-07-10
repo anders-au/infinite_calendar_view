@@ -462,6 +462,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
         returnMultiDayEvents: widget.fullDayParam.showMultiDayEvents,
       );
       for (final e in dayEvents ?? []) {
+        if (e.isSingleMidnightCrossingTimedEvent) continue;
         if (e.isMultiDay) {
           if ((e.daysIndex ?? 0) != 0) continue;
           if (!eventByKey.containsKey(e.uniqueId)) {
@@ -570,8 +571,9 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       // they have no sticky-clamp behaviour and never span the viewport.
       if (daysSpan > 1) {
         if (endIndex < firstVisibleIndex) continue; // all days off-screen left
-        if (startIndex > lastVisibleIndex)
+        if (startIndex > lastVisibleIndex) {
           continue; // all days off-screen right
+        }
         if (naturalRight <= 0) continue; // last day clipped off left
       } else {
         if (naturalRight <= 0 || naturalLeft >= viewportWidth) continue;

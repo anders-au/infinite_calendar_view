@@ -1,12 +1,8 @@
-import '../utils/extension.dart';
 import 'event.dart';
 import 'event_arranger.dart';
 
 class SimpleEventArranger extends EventArranger {
-  const SimpleEventArranger({
-    this.paddingLeft = 0,
-    this.paddingRight = 0,
-  });
+  const SimpleEventArranger({this.paddingLeft = 0, this.paddingRight = 0});
 
   final double paddingLeft;
   final double paddingRight;
@@ -19,15 +15,17 @@ class SimpleEventArranger extends EventArranger {
     required double heightPerMinute,
   }) {
     var organizedEvents = events
-        .map((event) => OrganizedEvent(
-              top: event.startTime.totalMinutes * heightPerMinute,
-              bottom: height - (event.endTime!.totalMinutes * heightPerMinute),
-              left: paddingLeft,
-              right: paddingRight,
-              startDuration: event.startTime,
-              endDuration: event.endTime!,
-              event: event,
-            ))
+        .map(
+          (event) => OrganizedEvent(
+            top: event.timedStartMinuteInDay * heightPerMinute,
+            bottom: height - (event.timedEndMinuteInDay * heightPerMinute),
+            left: paddingLeft,
+            right: paddingRight,
+            startDuration: event.startTime,
+            endDuration: event.endTime!,
+            event: event,
+          ),
+        )
         .toList();
     return organizedEvents;
   }

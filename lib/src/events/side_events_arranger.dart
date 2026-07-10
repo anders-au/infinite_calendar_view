@@ -1,12 +1,8 @@
-import '../utils/extension.dart';
 import 'event.dart';
 import 'event_arranger.dart';
 
 class SideEventArranger extends EventArranger {
-  const SideEventArranger({
-    this.paddingLeft = 0,
-    this.paddingRight = 0,
-  });
+  const SideEventArranger({this.paddingLeft = 0, this.paddingRight = 0});
 
   final double paddingLeft;
   final double paddingRight;
@@ -24,10 +20,12 @@ class SideEventArranger extends EventArranger {
     // determine conflict to each event
     for (var event in events) {
       var conflicts = events
-          .where((e) =>
-              e != event &&
-              e.startTime.isBefore(event.endTime!) == true &&
-              e.endTime!.isAfter(event.startTime))
+          .where(
+            (e) =>
+                e != event &&
+                e.startTime.isBefore(event.endTime!) == true &&
+                e.endTime!.isAfter(event.startTime),
+          )
           .toList();
       eventsConflict[event] = conflicts;
 
@@ -83,8 +81,8 @@ class SideEventArranger extends EventArranger {
       var columnWidth = widthWithPadding / maxColumn;
 
       return OrganizedEvent(
-        top: event.startTime.totalMinutes * heightPerMinute,
-        bottom: height - (event.endTime!.totalMinutes * heightPerMinute),
+        top: event.timedStartMinuteInDay * heightPerMinute,
+        bottom: height - (event.timedEndMinuteInDay * heightPerMinute),
         left: (columnIndex * columnWidth) + paddingLeft,
         right: ((maxColumn - columnIndex - 1) * columnWidth) + paddingRight,
         startDuration: event.startTime,

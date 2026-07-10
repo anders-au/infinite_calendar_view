@@ -76,18 +76,27 @@ class DayWidget extends StatelessWidget {
   /// auto-scrolling begins during a long-press drag.
   final double autoScrollThreshold;
 
-  PlannerTimeMapper get timeMapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
+  PlannerTimeMapper get timeMapper =>
+      plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
   Widget build(BuildContext context) {
     final mapper = timeMapper;
     var isToday = DateUtils.isSameDay(day, DateTime.now());
-    var dayBackgroundColor = isToday && todayColor != null ? todayColor : dayParam.dayColor;
+    var dayBackgroundColor = isToday && todayColor != null
+        ? todayColor
+        : dayParam.dayColor;
     var width = dayWidth - (cellGapWidthPadding * 2);
-    var endColumnIndex =
-        min(columnsParam.maxColumns != null ? startColumnIndex + columnsParam.maxColumns! : columnsParam.columns, columnsParam.columns);
+    var endColumnIndex = min(
+      columnsParam.maxColumns != null
+          ? startColumnIndex + columnsParam.maxColumns!
+          : columnsParam.columns,
+      columnsParam.columns,
+    );
     var offTimesOfDay = offTimesParam.offTimesDayRanges[day];
-    var offTimesDefaultColor = context.isDarkMode ? Theme.of(context).colorScheme.surface.lighten(0.03) : const Color(0xFFF4F4F4);
+    var offTimesDefaultColor = context.isDarkMode
+        ? Theme.of(context).colorScheme.surface.lighten(0.03)
+        : const Color(0xFFF4F4F4);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -97,28 +106,53 @@ class DayWidget extends StatelessWidget {
         bottom: dayParam.dayBottomPadding,
       ),
       child: GestureDetector(
-        onTapUp: (details) => onSlotEvent(width, details.localPosition.dx, details.localPosition.dy, true, false, false),
-        onDoubleTapDown: (details) => onSlotEvent(width, details.localPosition.dx, details.localPosition.dy, false, true, false),
-        onLongPressStart: (details) => onSlotEvent(width, details.localPosition.dx, details.localPosition.dy, false, false, true),
+        onTapUp: (details) => onSlotEvent(
+          width,
+          details.localPosition.dx,
+          details.localPosition.dy,
+          true,
+          false,
+          false,
+        ),
+        onDoubleTapDown: (details) => onSlotEvent(
+          width,
+          details.localPosition.dx,
+          details.localPosition.dy,
+          false,
+          true,
+          false,
+        ),
+        onLongPressStart: (details) => onSlotEvent(
+          width,
+          details.localPosition.dx,
+          details.localPosition.dy,
+          false,
+          false,
+          true,
+        ),
         onLongPressMoveUpdate: (details) {
           if (dayParam.slotInteractionConfig.enableLongPressSlotSelection &&
               dayParam.slotInteractionConfig.enableShift) {
             var slotSelection = controller.slotSelectionNotifier.value;
             if (slotSelection == null || slotSelection.isAllDay) return;
             {
-              final initialMinute = slotSelection.initialStartDate.totalMinutes.toDouble();
+              final initialMinute = slotSelection.initialStartDate.totalMinutes
+                  .toDouble();
               final initialY = mapper.minuteToY(initialMinute);
               // Use extended mapping when multi-day is enabled so the
               // dragged start can cross midnight boundaries.
               final maxDuration =
                   dayParam.slotInteractionConfig.maxDurationMinutes;
               final currentMinute = maxDuration != null
-                  ? mapper.yToMinuteExtended(initialY +
-                      details.localOffsetFromOrigin.dy)
+                  ? mapper.yToMinuteExtended(
+                      initialY + details.localOffsetFromOrigin.dy,
+                    )
                   : mapper.yToMinute(
-                      initialY + details.localOffsetFromOrigin.dy);
+                      initialY + details.localOffsetFromOrigin.dy,
+                    );
               final minutesDelta = currentMinute - initialMinute;
-              final dragInc = dayParam.slotInteractionConfig.stepMinutesResolver?.call(
+              final dragInc =
+                  dayParam.slotInteractionConfig.stepMinutesResolver?.call(
                     slotSelection.columnIndex,
                     slotSelection.startDateTime,
                   ) ??
@@ -126,8 +160,11 @@ class DayWidget extends StatelessWidget {
               var minutesDeltaRound = dayParam.onSlotRoundAlwaysBefore
                   ? dragInc * (minutesDelta / dragInc).floor()
                   : dragInc * (minutesDelta / dragInc).round();
-              final daysDelta = (details.localOffsetFromOrigin.dx / dayWidth).round();
-              final newStart = slotSelection.initialStartDate.addCalendarDays(daysDelta).add(Duration(minutes: minutesDeltaRound));
+              final daysDelta = (details.localOffsetFromOrigin.dx / dayWidth)
+                  .round();
+              final newStart = slotSelection.initialStartDate
+                  .addCalendarDays(daysDelta)
+                  .add(Duration(minutes: minutesDeltaRound));
               controller.slotSelectionNotifier.value = CalendarSlot(
                 columnIndex: slotSelection.columnIndex,
                 initialStartDate: slotSelection.initialStartDate,
@@ -146,17 +183,32 @@ class DayWidget extends StatelessWidget {
             Row(
               textDirection: textDirection,
               children: [
-                for (var column = startColumnIndex; column < endColumnIndex; column++)
+                for (
+                  var column = startColumnIndex;
+                  column < endColumnIndex;
+                  column++
+                )
                   Container(
                     width: columnsParam.getColumSize(width, column),
                     height: plannerHeight,
                     decoration: BoxDecoration(color: dayBackgroundColor),
                     child: CustomPaint(
-                      foregroundPainter: offTimesParam.offTimesAllDaysPainter?.call(column, day, isToday, mapper.heightPerMinute,
-                              offTimesParam.offTimesAllDaysRanges, offTimesParam.offTimesColor ?? offTimesDefaultColor) ??
-                        OffSetAllDaysPainter(isToday, mapper.heightPerMinute, offTimesParam.offTimesAllDaysRanges,
-                              offTimesParam.offTimesColor ?? offTimesDefaultColor,
-                          plannerTimeMapper: mapper),
+                      foregroundPainter:
+                          offTimesParam.offTimesAllDaysPainter?.call(
+                            column,
+                            day,
+                            isToday,
+                            mapper.heightPerMinute,
+                            offTimesParam.offTimesAllDaysRanges,
+                            offTimesParam.offTimesColor ?? offTimesDefaultColor,
+                          ) ??
+                          OffSetAllDaysPainter(
+                            isToday,
+                            mapper.heightPerMinute,
+                            offTimesParam.offTimesAllDaysRanges,
+                            offTimesParam.offTimesColor ?? offTimesDefaultColor,
+                            plannerTimeMapper: mapper,
+                          ),
                     ),
                   ),
               ],
@@ -167,16 +219,33 @@ class DayWidget extends StatelessWidget {
               Row(
                 textDirection: textDirection,
                 children: [
-                  for (var column = startColumnIndex; column < endColumnIndex; column++)
+                  for (
+                    var column = startColumnIndex;
+                    column < endColumnIndex;
+                    column++
+                  )
                     SizedBox(
                       width: columnsParam.getColumSize(width, column),
                       height: plannerHeight,
                       child: CustomPaint(
-                        foregroundPainter: offTimesParam.offTimesDayPainter?.call(column, day, isToday, mapper.heightPerMinute,
-                                offTimesOfDay, offTimesParam.offTimesColor ?? offTimesDefaultColor) ??
+                        foregroundPainter:
+                            offTimesParam.offTimesDayPainter?.call(
+                              column,
+                              day,
+                              isToday,
+                              mapper.heightPerMinute,
+                              offTimesOfDay,
+                              offTimesParam.offTimesColor ??
+                                  offTimesDefaultColor,
+                            ) ??
                             OffSetAllDaysPainter(
-                                false, mapper.heightPerMinute, offTimesOfDay, offTimesParam.offTimesColor ?? offTimesDefaultColor,
-                                plannerTimeMapper: mapper),
+                              false,
+                              mapper.heightPerMinute,
+                              offTimesOfDay,
+                              offTimesParam.offTimesColor ??
+                                  offTimesDefaultColor,
+                              plannerTimeMapper: mapper,
+                            ),
                       ),
                     ),
                 ],
@@ -187,7 +256,11 @@ class DayWidget extends StatelessWidget {
               width: width,
               height: plannerHeight,
               child: CustomPaint(
-                foregroundPainter: dayParam.dayCustomPainter?.call(mapper.heightPerMinute, isToday) ??
+                foregroundPainter:
+                    dayParam.dayCustomPainter?.call(
+                      mapper.heightPerMinute,
+                      isToday,
+                    ) ??
                     LinesPainter(
                       heightPerMinute: mapper.heightPerMinute,
                       plannerTimeMapper: mapper,
@@ -203,9 +276,13 @@ class DayWidget extends StatelessWidget {
                 width: width,
                 height: plannerHeight,
                 child: CustomPaint(
-                  foregroundPainter: columnsParam.columnCustomPainter?.call(
+                  foregroundPainter:
+                      columnsParam.columnCustomPainter?.call(
                         width,
-                        min(columnsParam.maxColumns ?? columnsParam.columns, columnsParam.columns),
+                        min(
+                          columnsParam.maxColumns ?? columnsParam.columns,
+                          columnsParam.columns,
+                        ),
                       ) ??
                       ColumnPainter(
                         width: width,
@@ -219,14 +296,20 @@ class DayWidget extends StatelessWidget {
             Row(
               textDirection: textDirection,
               children: [
-                for (var column = startColumnIndex; column < endColumnIndex; column++)
+                for (
+                  var column = startColumnIndex;
+                  column < endColumnIndex;
+                  column++
+                )
                   EventsListWidget(
                     // rebuild when column index change
                     key: ValueKey(column),
                     controller: controller,
                     columIndex: column,
                     day: day,
-                    plannerHeight: plannerHeight - (dayParam.dayTopPadding + dayParam.dayBottomPadding),
+                    plannerHeight:
+                        plannerHeight -
+                        (dayParam.dayTopPadding + dayParam.dayBottomPadding),
                     heightPerMinute: mapper.heightPerMinute,
                     plannerTimeMapper: mapper,
                     dayWidth: columnsParam.getColumSize(width, column),
@@ -243,7 +326,10 @@ class DayWidget extends StatelessWidget {
                 width: width,
                 height: plannerHeight,
                 child: CustomPaint(
-                  foregroundPainter: currentHourIndicatorParam.currentHourIndicatorCustomPainter?.call(mapper.heightPerMinute, isToday) ??
+                  foregroundPainter:
+                      currentHourIndicatorParam
+                          .currentHourIndicatorCustomPainter
+                          ?.call(mapper.heightPerMinute, isToday) ??
                       TimeIndicatorPainter(
                         mapper.heightPerMinute,
                         isToday,
@@ -275,14 +361,15 @@ class DayWidget extends StatelessWidget {
     var eventFunction = tap
         ? dayParam.onSlotTap
         : doubleTap
-            ? dayParam.onSlotDoubleTap
-            : dayParam.onSlotLongTap;
+        ? dayParam.onSlotDoubleTap
+        : dayParam.onSlotLongTap;
     eventFunction?.call(column, exactDate, roundDate);
 
     var slotInteractionConfig = dayParam.slotInteractionConfig;
 
     // reset slot selection
-    if (controller.slotSelectionNotifier.value != null && slotInteractionConfig.clearWhenBackgroundTap) {
+    if (controller.slotSelectionNotifier.value != null &&
+        slotInteractionConfig.clearWhenBackgroundTap) {
       controller.slotSelectionNotifier.value = null;
       slotInteractionConfig.onChanged?.call(null);
     }
@@ -291,7 +378,11 @@ class DayWidget extends StatelessWidget {
         (doubleTap && slotInteractionConfig.enableDoubleTapSlotSelection) ||
         (longPress && slotInteractionConfig.enableLongPressSlotSelection)) {
       int duration =
-          slotInteractionConfig.defaultDurationMinutes?.call(column, roundDate) ?? DayParam.defaultSlotDurationMinutes;
+          slotInteractionConfig.defaultDurationMinutes?.call(
+            column,
+            roundDate,
+          ) ??
+          DayParam.defaultSlotDurationMinutes;
       final slot = CalendarSlot.fromTap(
         columnIndex: column,
         startDateTime: roundDate,
@@ -320,13 +411,15 @@ class DayWidget extends StatelessWidget {
     if (bounds == null) return;
 
     if (SlotAutoScroller.debugAutoScroll) {
-      debugPrint('[autoScroll-LP] vp=(top:${bounds.top.toStringAsFixed(0)}, '
-          'btm:${bounds.bottom.toStringAsFixed(0)}, '
-          'h:${bounds.height.toStringAsFixed(0)}) '
-          'ptr=(${globalPosition.dx.toStringAsFixed(0)},${globalPosition.dy.toStringAsFixed(0)}) '
-          'topDist=${(globalPosition.dy - bounds.top).toStringAsFixed(0)} '
-          'btmDist=${(bounds.bottom - globalPosition.dy).toStringAsFixed(0)} '
-          'thresh=$autoScrollThreshold');
+      debugPrint(
+        '[autoScroll-LP] vp=(top:${bounds.top.toStringAsFixed(0)}, '
+        'btm:${bounds.bottom.toStringAsFixed(0)}, '
+        'h:${bounds.height.toStringAsFixed(0)}) '
+        'ptr=(${globalPosition.dx.toStringAsFixed(0)},${globalPosition.dy.toStringAsFixed(0)}) '
+        'topDist=${(globalPosition.dy - bounds.top).toStringAsFixed(0)} '
+        'btmDist=${(bounds.bottom - globalPosition.dy).toStringAsFixed(0)} '
+        'thresh=$autoScrollThreshold',
+      );
     }
 
     // ── vertical ───────────────────────────────────────────────────
@@ -346,8 +439,10 @@ class DayWidget extends StatelessWidget {
         );
         if ((newOffset - vc.offset).abs() > 0.01) {
           if (SlotAutoScroller.debugAutoScroll) {
-            debugPrint('[autoScroll-LP] VERTICAL jumpTo ${newOffset.toStringAsFixed(0)} '
-                'speed=${speed.toStringAsFixed(1)}');
+            debugPrint(
+              '[autoScroll-LP] VERTICAL jumpTo ${newOffset.toStringAsFixed(0)} '
+              'speed=${speed.toStringAsFixed(1)}',
+            );
           }
           vc.jumpTo(newOffset);
         }
@@ -391,8 +486,10 @@ class DayWidget extends StatelessWidget {
   DateTime getRoundDateTime(double dy) {
     var dayMinute = timeMapper.yToMinute(dy);
     var dayMinuteRounded = dayParam.onSlotRoundAlwaysBefore
-        ? dayParam.onSlotMinutesRound * (dayMinute / dayParam.onSlotMinutesRound).floor()
-        : dayParam.onSlotMinutesRound * (dayMinute / dayParam.onSlotMinutesRound).round();
+        ? dayParam.onSlotMinutesRound *
+              (dayMinute / dayParam.onSlotMinutesRound).floor()
+        : dayParam.onSlotMinutesRound *
+              (dayMinute / dayParam.onSlotMinutesRound).round();
     return day.withoutTime.add(Duration(minutes: dayMinuteRounded.toInt()));
   }
 }
@@ -423,7 +520,8 @@ class EventsListWidget extends StatefulWidget {
   final DayParam dayParam;
   final bool showMultiDayEvents;
 
-  PlannerTimeMapper get timeMapper => plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
+  PlannerTimeMapper get timeMapper =>
+      plannerTimeMapper ?? PlannerTimeMapper(heightPerMinute: heightPerMinute);
 
   @override
   State<EventsListWidget> createState() => _EventsListWidgetState();
@@ -453,11 +551,17 @@ class _EventsListWidgetState extends State<EventsListWidget> {
     return widget.controller
         .getFilteredDayEvents(
           widget.day,
-          returnMultiDayEvents: widget.showMultiDayEvents,
+          returnMultiDayEvents: true,
           returnFullDayEvent: false,
           returnMultiFullDayEvents: false,
         )
-        ?.where((e) => e.columnIndex == widget.columIndex)
+        ?.where(
+          (e) =>
+              e.columnIndex == widget.columIndex &&
+              (!e.isMultiDay ||
+                  widget.showMultiDayEvents ||
+                  e.isSingleMidnightCrossingTimedEvent),
+        )
         .toList();
   }
 
@@ -499,11 +603,16 @@ class _EventsListWidgetState extends State<EventsListWidget> {
   Widget getEventWidget(OrganizedEvent organizedEvent) {
     final mapper = widget.timeMapper;
     var left = organizedEvent.left;
-    var top = mapper.minuteToY(organizedEvent.startDuration.totalMinutes.toDouble());
+    var top = mapper.minuteToY(
+      organizedEvent.event.timedStartMinuteInDay.toDouble(),
+    );
     var right = organizedEvent.right;
-    final endMinute = organizedEvent.endDuration.totalMinutes;
+    final endMinute = organizedEvent.event.timedEndMinuteInDay;
     var eventBottom = mapper.minuteToY(endMinute.toDouble());
-    if (mapper.cellGapHeight > 0 && endMinute > 0 && endMinute < (24 * 60) && endMinute % 60 == 0) {
+    if (mapper.cellGapHeight > 0 &&
+        endMinute > 0 &&
+        endMinute < (24 * 60) &&
+        endMinute % 60 == 0) {
       eventBottom -= mapper.cellGapHeight;
     }
     var bottom = widget.plannerHeight - eventBottom;
@@ -516,7 +625,12 @@ class _EventsListWidgetState extends State<EventsListWidget> {
       right: right,
       bottom: bottom,
       child: widget.dayParam.dayEventBuilder != null
-          ? widget.dayParam.dayEventBuilder!.call(organizedEvent.event, height, width, mapper.heightPerMinute)
+          ? widget.dayParam.dayEventBuilder!.call(
+              organizedEvent.event,
+              height,
+              width,
+              mapper.heightPerMinute,
+            )
           : DefaultDayEvent(
               title: organizedEvent.event.title,
               description: organizedEvent.event.description,
@@ -524,6 +638,13 @@ class _EventsListWidgetState extends State<EventsListWidget> {
               textColor: organizedEvent.event.textColor,
               height: height,
               width: width,
+              hideTopBorder:
+                  organizedEvent.event.isMultiDay &&
+                  organizedEvent.event.timedStartMinuteInDay == 0,
+              hideBottomBorder:
+                  organizedEvent.event.isMultiDay &&
+                  organizedEvent.event.timedEndMinuteInDay ==
+                      Event.minutesPerDay,
             ),
     );
   }
@@ -547,6 +668,8 @@ class DefaultDayEvent extends StatelessWidget {
     this.roundBorderRadius = 3,
     this.hideLeftBorder = false,
     this.hideRightBorder = false,
+    this.hideTopBorder = false,
+    this.hideBottomBorder = false,
     this.onTap,
     this.onDoubleTap,
     this.onLongPress,
@@ -576,6 +699,8 @@ class DefaultDayEvent extends StatelessWidget {
   /// When true, the right corners are flat (radius 0) to indicate the
   /// event's end is off-screen — an "ongoing" event.
   final bool hideRightBorder;
+  final bool hideTopBorder;
+  final bool hideBottomBorder;
 
   final GestureTapCallback? onTap;
   final GestureTapDownCallback? onTapDown;
@@ -588,17 +713,30 @@ class DefaultDayEvent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final r = roundBorderRadius;
+    final direction = Directionality.maybeOf(context) ?? TextDirection.ltr;
+    final resolvedMargin = eventMargin?.resolve(direction);
+    final effectiveMargin = resolvedMargin == null
+        ? null
+        : EdgeInsets.only(
+            left: resolvedMargin.left,
+            top: hideTopBorder ? 0 : resolvedMargin.top,
+            right: resolvedMargin.right,
+            bottom: hideBottomBorder ? 0 : resolvedMargin.bottom,
+          );
 
     return Container(
-      margin: eventMargin,
+      margin: effectiveMargin,
       child: ClipRRect(
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(hideLeftBorder ? 0 : r),
-          topRight: Radius.circular(hideRightBorder ? 0 : r),
-          bottomLeft: Radius.circular(hideLeftBorder ? 0 : r),
-          bottomRight: Radius.circular(hideRightBorder ? 0 : r),
+          topLeft: Radius.circular(hideLeftBorder || hideTopBorder ? 0 : r),
+          topRight: Radius.circular(hideRightBorder || hideTopBorder ? 0 : r),
+          bottomLeft: Radius.circular(
+            hideLeftBorder || hideBottomBorder ? 0 : r,
+          ),
+          bottomRight: Radius.circular(
+            hideRightBorder || hideBottomBorder ? 0 : r,
+          ),
         ),
         child: Material(
           child: InkWell(
@@ -617,7 +755,8 @@ class DefaultDayEvent extends StatelessWidget {
                   horizontal: horizontalPadding,
                   vertical: height > minHeight ? verticalPadding : 0,
                 ),
-                child: child ??
+                child:
+                    child ??
                     Column(
                       mainAxisAlignment: MainAxisAlignment.start,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -639,7 +778,10 @@ class DefaultDayEvent extends StatelessWidget {
                           Flexible(
                             child: Text(
                               description!,
-                              style: TextStyle(color: textColor, fontSize: descriptionFontSize),
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: descriptionFontSize,
+                              ),
                               overflow: TextOverflow.ellipsis,
                               softWrap: false,
                               maxLines: 4,
@@ -655,4 +797,3 @@ class DefaultDayEvent extends StatelessWidget {
     );
   }
 }
-

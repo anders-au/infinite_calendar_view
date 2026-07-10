@@ -553,25 +553,9 @@ class _AllDayLabels extends StatelessWidget {
       builder: (context, constraints) {
         if (constraints.maxWidth < 60) return const SizedBox.shrink();
 
-        if (isSingleDay || constraints.maxWidth < 100) {
-          return Center(
-            child: Text(
-              _formatDate(slot.startDateTime),
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: accent,
-                fontSize: 11,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }
-
         // Shift text inward when resize handles are visible so labels
-        // don't overlap the handle pills.  Skip when the handle is
-        // hidden because that side is off-screen.
+        // don't overlap the handle pills. Skip when the handle is hidden
+        // because that side is off-screen.
         final handlePad = config.handleZoneSize;
         final leftPad =
             config.enableResizeStart && config.showHandles && !hideLeftHandle
@@ -581,6 +565,25 @@ class _AllDayLabels extends StatelessWidget {
             config.enableResizeEnd && config.showHandles && !hideRightHandle
             ? handlePad
             : 4.0;
+
+        if (isSingleDay || constraints.maxWidth < 100) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(leftPad, 0, rightPad, 0),
+            child: Center(
+              child: Text(
+                _formatDate(slot.startDateTime),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: accent,
+                  fontSize: 11,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          );
+        }
 
         return Padding(
           padding: EdgeInsets.fromLTRB(leftPad, 0, rightPad, 0),
