@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -554,9 +553,8 @@ class _SlotOverlayState extends State<SlotOverlay> {
       viewportRightInset: widget.viewportRightInset,
       onScroll: (delta) {
         if (_session == null) return;
-        _session!.addDelta(delta);
-        final s = _session!.computeProposed();
-        if (s != null && s != _session!.lastEmitted) {
+        final s = _session!.applyUpdate(delta);
+        if (s != null) {
           widget.onChanged?.call(s);
         }
       },

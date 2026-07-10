@@ -199,7 +199,8 @@ class CalendarSlot {
         ? _roundMinutes(delta.dy / heightPerMinute, config.stepMinutes)
         : 0;
 
-    final totalMinuteShift = days * PlannerTimeMapper.minutesPerDay + minuteDelta;
+    final totalMinuteShift =
+        days * PlannerTimeMapper.minutesPerDay + minuteDelta;
 
     CalendarSlot result;
     switch (mode) {
@@ -213,7 +214,10 @@ class CalendarSlot {
         final newDur = endDateTime.difference(newStart);
         if (newDur.inMinutes <= 0) {
           final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
-          result = withDuration(Duration(minutes: minDur));
+          result = withDates(
+            endDateTime.subtract(Duration(minutes: minDur)),
+            endDateTime,
+          );
         } else {
           result = withStart(newStart).copyWith(duration: newDur);
         }
@@ -231,14 +235,17 @@ class CalendarSlot {
     }
 
     if (debugSlotDrag) {
-      final pkg = 'package:infinite_calendar_view/src/interactive_slot/slot_selection.dart';
-      debugPrint('[$pkg] applyDelta  '
-          'mode=$mode  '
-          'delta=(${delta.dx.toStringAsFixed(1)},${delta.dy.toStringAsFixed(1)})  '
-          'days=$days  minDelta=$minuteDelta  totalShift=$totalMinuteShift  '
-          'anchorStart=$startDateTime  anchorEnd=$endDateTime  '
-          'resultStart=${result.startDateTime}  resultEnd=${result.endDateTime}  '
-          'resultDays=${result.totalDaysSpanned}');
+      final pkg =
+          'package:infinite_calendar_view/src/interactive_slot/slot_selection.dart';
+      debugPrint(
+        '[$pkg] applyDelta  '
+        'mode=$mode  '
+        'delta=(${delta.dx.toStringAsFixed(1)},${delta.dy.toStringAsFixed(1)})  '
+        'days=$days  minDelta=$minuteDelta  totalShift=$totalMinuteShift  '
+        'anchorStart=$startDateTime  anchorEnd=$endDateTime  '
+        'resultStart=${result.startDateTime}  resultEnd=${result.endDateTime}  '
+        'resultDays=${result.totalDaysSpanned}',
+      );
     }
 
     return result;
@@ -331,12 +338,12 @@ class CalendarSlot {
 
   @override
   int get hashCode => Object.hash(
-        columnIndex,
-        initialStartDate,
-        startDateTime,
-        duration,
-        isAllDay,
-      );
+    columnIndex,
+    initialStartDate,
+    startDateTime,
+    duration,
+    isAllDay,
+  );
 
   @override
   String toString() =>

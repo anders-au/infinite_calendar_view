@@ -25,6 +25,7 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
     required this.onUpdate,
     required this.onEnd,
     required this.onTap,
+    this.debugLabel,
   });
 
   double dragThreshold;
@@ -38,6 +39,7 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
   void Function(DragUpdateDetails) onUpdate;
   VoidCallback onEnd;
   VoidCallback onTap;
+  String? debugLabel;
 
   Offset? _startGlobal;
   bool _dragStarted = false;
@@ -48,8 +50,9 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
   /// whether to fire [onEnd] during disposal.
   bool get isActive => _pointer != null && _dragStarted;
 
-  void cancelActiveDrag() {
-    _completeDrag();
+  void cancelActiveDrag({bool notifyEnd = true}) {
+    _log('cancelActiveDrag notifyEnd=$notifyEnd');
+    _completeDrag(notifyEnd: notifyEnd);
     final pointer = _pointer;
     if (pointer != null) {
       _finish(pointer);
@@ -58,7 +61,9 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
+    _log('pointer down pointer=${event.pointer}');
     if (_pointer != null) {
+      _log('replacing active pointer $_pointer with ${event.pointer}');
       _completeDrag();
       stopTrackingPointer(_pointer!);
       _pointer = null;
@@ -81,6 +86,7 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
       if (!_dragStarted) {
         if (delta.distance < dragThreshold) return;
         _dragStarted = true;
+        _log('drag start pointer=${event.pointer}');
         resolve(GestureDisposition.accepted);
         onStart(preSetMode);
       }
@@ -93,6 +99,7 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
         ),
       );
     } else if (event is PointerUpEvent) {
+      _log('pointer up pointer=${event.pointer} dragStarted=$_dragStarted');
       if (!_dragStarted) {
         onTap();
         resolve(GestureDisposition.accepted);
@@ -101,6 +108,7 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
       }
       _finish(event.pointer);
     } else if (event is PointerCancelEvent) {
+      _log('pointer cancel pointer=${event.pointer}');
       _completeDrag();
       _finish(event.pointer);
     }
@@ -112,6 +120,7 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
   @override
   void rejectGesture(int pointer) {
     if (_pointer == pointer) {
+      _log('rejectGesture pointer=$pointer');
       _completeDrag();
       _finish(pointer);
     }
@@ -119,16 +128,20 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void didStopTrackingLastPointer(int pointer) {
+    _log('didStopTrackingLastPointer pointer=$pointer');
     _completeDrag();
     _pointer = null;
     _startGlobal = null;
     _dragStarted = false;
   }
 
-  void _completeDrag() {
+  void _completeDrag({bool notifyEnd = true}) {
     if (!_dragStarted) return;
+    _log('completeDrag notifyEnd=$notifyEnd');
     _dragStarted = false;
-    onEnd();
+    if (notifyEnd) {
+      onEnd();
+    }
   }
 
   void _finish(int pointer) {
@@ -142,6 +155,11 @@ class SlotDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   String get debugDescription => 'SlotDragRecognizer';
+
+  void _log(String message) {
+    if (!SlotHandleZone.debugGestureLifecycle) return;
+    debugPrint('[slotGesture ${debugLabel ?? debugDescription}] $message');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -169,6 +187,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
     required this.onUpdate,
     required this.onEnd,
     required this.onTap,
+    this.debugLabel,
   });
 
   /// How long the user must hold before the drag commits.
@@ -185,6 +204,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
   void Function(DragUpdateDetails) onUpdate;
   VoidCallback onEnd;
   VoidCallback onTap;
+  String? debugLabel;
 
   Offset? _startGlobal;
   bool _dragStarted = false;
@@ -194,9 +214,10 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
   /// Whether this recognizer is actively tracking a drag.
   bool get isActive => _pointer != null && _dragStarted;
 
-  void cancelActiveDrag() {
+  void cancelActiveDrag({bool notifyEnd = true}) {
+    _log('cancelActiveDrag notifyEnd=$notifyEnd');
     _cancelDeadline();
-    _completeDrag();
+    _completeDrag(notifyEnd: notifyEnd);
     final pointer = _pointer;
     if (pointer != null) {
       _finish(pointer);
@@ -205,7 +226,9 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
+    _log('pointer down pointer=${event.pointer}');
     if (_pointer != null) {
+      _log('replacing active pointer $_pointer with ${event.pointer}');
       _completeDrag();
       _cancelDeadline();
       stopTrackingPointer(_pointer!);
@@ -238,6 +261,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
           // the drag, avoiding that frustration.
           _cancelDeadline();
           _dragStarted = true;
+          _log('drag start before deadline pointer=${event.pointer}');
           resolve(GestureDisposition.accepted);
           onStart(preSetMode);
           return;
@@ -255,6 +279,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
         ),
       );
     } else if (event is PointerUpEvent) {
+      _log('pointer up pointer=${event.pointer} dragStarted=$_dragStarted');
       if (!_dragStarted) {
         // Went up before the long-press duration → tap.
         _cancelDeadline();
@@ -265,6 +290,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
       }
       _finish(event.pointer);
     } else if (event is PointerCancelEvent) {
+      _log('pointer cancel pointer=${event.pointer}');
       _cancelDeadline();
       _completeDrag();
       _finish(event.pointer);
@@ -277,6 +303,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
   @override
   void rejectGesture(int pointer) {
     if (_pointer == pointer) {
+      _log('rejectGesture pointer=$pointer');
       _cancelDeadline();
       _completeDrag();
       _finish(pointer);
@@ -285,6 +312,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void didStopTrackingLastPointer(int pointer) {
+    _log('didStopTrackingLastPointer pointer=$pointer');
     _cancelDeadline();
     _completeDrag();
     _pointer = null;
@@ -299,6 +327,7 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
     if (_pointer == null) return;
     if (_dragStarted) return; // Already started (defensive).
     _dragStarted = true;
+    _log('deadline reached; drag start pointer=$_pointer');
     resolve(GestureDisposition.accepted);
     onStart(preSetMode);
   }
@@ -308,10 +337,13 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
     _deadlineTimer = null;
   }
 
-  void _completeDrag() {
+  void _completeDrag({bool notifyEnd = true}) {
     if (!_dragStarted) return;
+    _log('completeDrag notifyEnd=$notifyEnd');
     _dragStarted = false;
-    onEnd();
+    if (notifyEnd) {
+      onEnd();
+    }
   }
 
   void _finish(int pointer) {
@@ -331,6 +363,11 @@ class LongPressDragRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   String get debugDescription => 'LongPressDragRecognizer';
+
+  void _log(String message) {
+    if (!SlotHandleZone.debugGestureLifecycle) return;
+    debugPrint('[slotGesture ${debugLabel ?? debugDescription}] $message');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -372,9 +409,10 @@ class SlotHandleZone extends StatefulWidget {
   final void Function(DragUpdateDetails details)? onDragUpdate;
   final VoidCallback? onDragEnd;
   final VoidCallback? onTap;
+  static bool debugGestureLifecycle = false;
 
   bool get _isEnabled => switch (dragMode) {
-    DragMode.shift => config.enableShift,
+    DragMode.shift => config.enableShift, 
     DragMode.extendStart => config.enableResize && config.enableResizeStart,
     DragMode.extendEnd => config.enableResize && config.enableResizeEnd,
   };
@@ -387,10 +425,12 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
   OneSequenceGestureRecognizer? _recognizer;
 
   bool get _isShift => widget.dragMode == DragMode.shift;
+  String get _debugLabel => '${widget.dragMode} key=${widget.key}';
 
   @override
   void initState() {
     super.initState();
+    _log('init');
     _createRecognizer();
   }
 
@@ -403,7 +443,12 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
         oldWidget.config.dragThreshold != widget.config.dragThreshold ||
         oldWidget.config.longPressDuration != widget.config.longPressDuration ||
         oldWidget.dragMode != widget.dragMode;
+    _log(
+      'didUpdate oldMode=${oldWidget.dragMode} needsRebuild=$needsRebuild '
+      'oldKey=${oldWidget.key}',
+    );
     if (needsRebuild) {
+      _log('recreate recognizer');
       _recognizer?.dispose();
       _recognizer = null;
       _createRecognizer();
@@ -420,6 +465,7 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
         onUpdate: (details) => widget.onDragUpdate?.call(details),
         onEnd: () => widget.onDragEnd?.call(),
         onTap: () => widget.onTap?.call(),
+        debugLabel: _debugLabel,
       );
     } else {
       _recognizer ??= SlotDragRecognizer(
@@ -429,21 +475,34 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
         onUpdate: (details) => widget.onDragUpdate?.call(details),
         onEnd: () => widget.onDragEnd?.call(),
         onTap: () => widget.onTap?.call(),
+        debugLabel: _debugLabel,
       );
     }
   }
 
   @override
   void dispose() {
+    _log('dispose recognizer=${_recognizer.runtimeType}');
     final r = _recognizer;
+    var hadActiveDrag = false;
     if (r is SlotDragRecognizer && r.isActive) {
-      r.cancelActiveDrag();
+      hadActiveDrag = true;
+      _log('dispose while active SlotDragRecognizer');
+      r.cancelActiveDrag(notifyEnd: false);
     } else if (r is LongPressDragRecognizer && r.isActive) {
-      r.cancelActiveDrag();
+      hadActiveDrag = true;
+      _log('dispose while active LongPressDragRecognizer');
+      r.cancelActiveDrag(notifyEnd: false);
     }
     _recognizer?.dispose();
     _recognizer = null;
     super.dispose();
+    if (hadActiveDrag) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _log('post-frame dragEnd after active dispose');
+        widget.onDragEnd?.call();
+      });
+    }
   }
 
   @override
@@ -469,6 +528,7 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
       r.onTap = () => widget.onTap?.call();
       r.dragThreshold = widget.config.dragThreshold;
       r.preSetMode = widget.dragMode;
+      r.debugLabel = _debugLabel;
 
       return RawGestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -489,6 +549,7 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
       r.longPressDuration = widget.config.longPressDuration;
       r.dragThreshold = widget.config.dragThreshold;
       r.preSetMode = widget.dragMode;
+      r.debugLabel = _debugLabel;
 
       return RawGestureDetector(
         behavior: HitTestBehavior.translucent,
@@ -504,6 +565,11 @@ class _SlotHandleZoneState extends State<SlotHandleZone> {
     }
 
     return widget.child ?? const SizedBox.shrink();
+  }
+
+  void _log(String message) {
+    if (!SlotHandleZone.debugGestureLifecycle) return;
+    debugPrint('[slotHandle $_debugLabel] $message');
   }
 }
 

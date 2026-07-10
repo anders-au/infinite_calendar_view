@@ -31,6 +31,7 @@ class AllDaySlotOverlay extends StatefulWidget {
     this.mainContentScrollController,
     this.viewportLeftInset = 0,
     this.viewportWidth,
+    this.viewportKey,
     this.autoScrollThreshold = 40.0,
     this.autoScrollMaxSpeed = 8.0,
     this.onChanged,
@@ -78,6 +79,10 @@ class AllDaySlotOverlay extends StatefulWidget {
   /// When null (backward compat), end-off-screen detection is skipped.
   final double? viewportWidth;
 
+  /// Key for the all-day viewport [Stack]. Used to calculate auto-scroll
+  /// edge bounds from the exact clipped all-day area.
+  final GlobalKey? viewportKey;
+
   /// Auto-scroll parameters.
   final double autoScrollThreshold;
   final double autoScrollMaxSpeed;
@@ -97,8 +102,12 @@ class AllDaySlotOverlay extends StatefulWidget {
 }
 
 class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
+  static const double _edgeVisibilityTolerance = 1.0;
+  static bool debugAllDayDrag = false;
+
   DragSession? _session;
   SlotAutoScroller? _autoScroller;
+  _AllDaySlotLayout? _lastInteractiveLayout;
   MouseCursor _effectiveCursor = SystemMouseCursors.basic;
 
   CalendarSlot? get _slot => widget.slotNotifier.value;
@@ -114,23 +123,31 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final slot = _slot;
     if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
 
-    final layout = _computeLayout(slot);
-    if (layout.rect.isEmpty) return const SizedBox.shrink();
+    var layout = _computeLayout(slot);
+    if (layout.rect.isEmpty) {
+      if (_session == null || _lastInteractiveLayout == null) {
+        _log('build empty layout; no active fallback, returning shrink');
+        return const SizedBox.shrink();
+      }
+      _log('build empty layout during drag; using last interactive layout');
+      layout = _lastInteractiveLayout!;
+    } else {
+      _lastInteractiveLayout = layout;
+    }
 
     final isDragging = _session != null;
     final accent =
         widget.config.accentColor ?? Theme.of(context).colorScheme.secondary;
 
-    return Positioned(
-      left: layout.rect.left,
-      top: layout.rect.top,
-      width: layout.rect.width,
-      height: layout.rect.height,
-      child: MouseRegion(
-        cursor: _effectiveCursor,
-        onHover: isDragging ? null : _onHover,
-        onExit: isDragging ? null : (_) => _updateCursor(null),
-        child: _buildHandleStack(slot, accent, layout),
+    return Positioned.fill(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: _buildStableHandleStack(
+          slot,
+          accent,
+          layout,
+          isDragging: isDragging,
+        ),
       ),
     );
   }
@@ -159,16 +176,21 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
         viewportX + widget.cellGapWidthPadding + widget.columnPositions[0];
     final naturalWidth =
         (daysSpan - 1) * widget.dayWidth + colWidth - widget.eventEndGap;
+    final effectiveViewportWidth =
+        widget.viewportWidth ?? _stackWidthFromContext(context);
 
     // Completely off-screen? Return empty.
     if (naturalLeft + naturalWidth <= 0 ||
-        naturalLeft >= widget.dayWidth * 30) {
+        (effectiveViewportWidth != null &&
+            naturalLeft >= effectiveViewportWidth)) {
       return _AllDaySlotLayout.zero;
     }
 
     // Start is off-screen when the natural left edge is before the
     // viewport (sticky-left will clamp to 0).
-    final isStartOffScreen = naturalLeft < 0 && naturalLeft + naturalWidth > 0;
+    final isStartOffScreen =
+        naturalLeft < -_edgeVisibilityTolerance &&
+        naturalLeft + naturalWidth > 0;
 
     // Sticky-left clamping.
     final double left;
@@ -186,10 +208,10 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     // Use the explicit viewportWidth parameter when provided, otherwise
     // derive it from the Stack ancestor's RenderBox size.
     final bool isEndOffScreen;
-    final effectiveViewportWidth =
-        widget.viewportWidth ?? _stackWidthFromContext(context);
     if (effectiveViewportWidth != null) {
-      isEndOffScreen = naturalLeft + naturalWidth > effectiveViewportWidth;
+      isEndOffScreen =
+          naturalLeft + naturalWidth >
+          effectiveViewportWidth + _edgeVisibilityTolerance;
     } else {
       // Last-resort fallback: detect via width truncation from
       // sticky-left clamping only.
@@ -208,28 +230,178 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
 
   // ── handle stack ─────────────────────────────────────────────────────
 
+  List<Widget> _buildStableHandleStack(
+    CalendarSlot slot,
+    Color accent,
+    _AllDaySlotLayout layout, {
+    required bool isDragging,
+  }) {
+    final zoneSize = widget.config.handleZoneSize;
+    final activeMode = _session?.mode;
+    final canResizeStart =
+        widget.config.enableResize && widget.config.enableResizeStart;
+    final canResizeEnd =
+        widget.config.enableResize && widget.config.enableResizeEnd;
+
+    final showLeftHandle = canResizeStart && !layout.isStartOffScreen;
+    final showRightHandle = canResizeEnd && !layout.isEndOffScreen;
+    final mountLeftHandleZone =
+        showLeftHandle || activeMode == DragMode.extendStart;
+    final mountRightHandleZone =
+        showRightHandle || activeMode == DragMode.extendEnd;
+
+    final rect = layout.rect;
+    final shiftLeftInset = showLeftHandle ? zoneSize : 0.0;
+    final shiftRightInset = showRightHandle ? zoneSize : 0.0;
+    final shiftWidth = (rect.width - shiftLeftInset - shiftRightInset).clamp(
+      0.0,
+      rect.width,
+    );
+
+    _log(
+      'build stack active=$activeMode rect=${_formatRect(rect)} '
+      'startOff=${layout.isStartOffScreen} endOff=${layout.isEndOffScreen} '
+      'showL=$showLeftHandle showR=$showRightHandle '
+      'mountL=$mountLeftHandleZone mountR=$mountRightHandleZone '
+      'shiftWidth=${shiftWidth.toStringAsFixed(1)}',
+    );
+
+    return [
+      Positioned.fromRect(
+        rect: rect,
+        child: IgnorePointer(
+          child: SlotRenderer(
+            slot: slot,
+            config: widget.config,
+            accentColor: accent,
+            isDragging: _session != null,
+            hideLeftBorder: layout.isStartOffScreen,
+            hideRightBorder: layout.isEndOffScreen,
+            hideLeftHandle: !showLeftHandle,
+            hideRightHandle: !showRightHandle,
+          ),
+        ),
+      ),
+      Positioned.fromRect(
+        rect: rect,
+        child: MouseRegion(
+          cursor: _effectiveCursor,
+          onHover: isDragging ? null : _onHover,
+          onExit: isDragging ? null : (_) => _updateCursor(null),
+          child: const SizedBox.expand(),
+        ),
+      ),
+      if (widget.config.enableShift && shiftWidth > 0)
+        Positioned(
+          key: const ValueKey('allDaySlot.shift.positioned'),
+          left: rect.left + shiftLeftInset,
+          top: rect.top,
+          width: shiftWidth,
+          height: rect.height,
+          child: SlotHandleZone(
+            dragMode: DragMode.shift,
+            config: widget.config,
+            onDragStart: (mode) => _onDragStart(mode),
+            onDragUpdate: _onDragUpdate,
+            onDragEnd: _onDragEnd,
+            onTap: () => widget.config.onTap?.call(slot),
+          ),
+        ),
+      if (mountLeftHandleZone)
+        Positioned(
+          key: const ValueKey('allDaySlot.extendStart.positioned'),
+          left: rect.left,
+          top: rect.top,
+          width: zoneSize,
+          height: rect.height,
+          child: SlotHandleZone(
+            dragMode: DragMode.extendStart,
+            config: widget.config,
+            onDragStart: (mode) => _onDragStart(DragMode.extendStart),
+            onDragUpdate: _onDragUpdate,
+            onDragEnd: _onDragEnd,
+          ),
+        ),
+      if (mountRightHandleZone)
+        Positioned(
+          key: const ValueKey('allDaySlot.extendEnd.positioned'),
+          left: rect.right - zoneSize,
+          top: rect.top,
+          width: zoneSize,
+          height: rect.height,
+          child: SlotHandleZone(
+            dragMode: DragMode.extendEnd,
+            config: widget.config,
+            onDragStart: (mode) => _onDragStart(DragMode.extendEnd),
+            onDragUpdate: _onDragUpdate,
+            onDragEnd: _onDragEnd,
+          ),
+        ),
+      if (showLeftHandle && widget.config.showHandles)
+        Positioned(
+          left: rect.left + 6,
+          top: rect.top + 6,
+          height: rect.height - 12,
+          child: IgnorePointer(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                width: 4,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+          ),
+        ),
+      if (showRightHandle && widget.config.showHandles)
+        Positioned(
+          left: rect.right - 10,
+          top: rect.top + 6,
+          height: rect.height - 12,
+          child: IgnorePointer(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                width: 4,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  // ignore: unused_element
   Widget _buildHandleStack(
     CalendarSlot slot,
     Color accent,
     _AllDaySlotLayout layout,
   ) {
     final zoneSize = widget.config.handleZoneSize;
-    final isStartOff = layout.isStartOffScreen;
-    final isEndOff = layout.isEndOffScreen;
     final activeMode = _session?.mode;
+    final visualLayout = layout;
+    final canResizeStart =
+        widget.config.enableResize && widget.config.enableResizeStart;
+    final canResizeEnd =
+        widget.config.enableResize && widget.config.enableResizeEnd;
 
     // Hide handles when their edge is off-screen — the event is "ongoing"
     // and should not show resize affordances on the clipped side. Keep the
     // active handle mounted, though, so auto-scroll drags receive their
     // normal pointer end/cancel lifecycle.
-    final showLeftHandle =
-        widget.config.enableResize &&
-        widget.config.enableResizeStart &&
-        (!isStartOff || activeMode == DragMode.extendStart);
-    final showRightHandle =
-        widget.config.enableResize &&
-        widget.config.enableResizeEnd &&
-        (!isEndOff || activeMode == DragMode.extendEnd);
+    final showLeftHandle = canResizeStart && !layout.isStartOffScreen;
+    final showRightHandle = canResizeEnd && !layout.isEndOffScreen;
+    final mountLeftHandleZone =
+        showLeftHandle || activeMode == DragMode.extendStart;
+    final mountRightHandleZone =
+        showRightHandle || activeMode == DragMode.extendEnd;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -242,8 +414,8 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
               config: widget.config,
               accentColor: accent,
               isDragging: _session != null,
-              hideLeftBorder: isStartOff,
-              hideRightBorder: isEndOff,
+              hideLeftBorder: visualLayout.isStartOffScreen,
+              hideRightBorder: visualLayout.isEndOffScreen,
               hideLeftHandle: !showLeftHandle,
               hideRightHandle: !showRightHandle,
             ),
@@ -259,6 +431,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
             right: showRightHandle ? zoneSize : 0,
             bottom: 0,
             child: SlotHandleZone(
+              key: const ValueKey('allDaySlot.shift'),
               dragMode: DragMode.shift,
               config: widget.config,
               onDragStart: (mode) => _onDragStart(mode),
@@ -269,13 +442,14 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
           ),
 
         // ── left handle (extend start) ─────────────────────────
-        if (showLeftHandle)
+        if (mountLeftHandleZone)
           Positioned(
             left: 0,
             top: 0,
             bottom: 0,
             width: zoneSize,
             child: SlotHandleZone(
+              key: const ValueKey('allDaySlot.extendStart'),
               dragMode: DragMode.extendStart,
               config: widget.config,
               onDragStart: (mode) => _onDragStart(DragMode.extendStart),
@@ -285,13 +459,14 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
           ),
 
         // ── right handle (extend end) ──────────────────────────
-        if (showRightHandle)
+        if (mountRightHandleZone)
           Positioned(
             right: 0,
             top: 0,
             bottom: 0,
             width: zoneSize,
             child: SlotHandleZone(
+              key: const ValueKey('allDaySlot.extendEnd'),
               dragMode: DragMode.extendEnd,
               config: widget.config,
               onDragStart: (mode) => _onDragStart(DragMode.extendEnd),
@@ -349,10 +524,8 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   static const double _resizeZoneSize = 20.0;
 
   void _onHover(PointerHoverEvent event) {
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
-    final localX = renderBox.globalToLocal(event.position).dx;
-    final width = renderBox.size.width;
+    final localX = event.localPosition.dx;
+    final width = _lastInteractiveLayout?.rect.width ?? 0;
 
     if (!widget.config.enableResizeStart && !widget.config.enableResizeEnd) {
       _updateCursor(SystemMouseCursors.grab);
@@ -405,6 +578,12 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final slot = _slot;
     if (slot == null) return;
 
+    _log(
+      'drag start mode=$mode slot=${_formatSlot(slot)} '
+      'mainHasClients=${widget.mainContentScrollController?.hasClients} '
+      'headerHasClients=${widget.headerScrollController?.hasClients}',
+    );
+
     widget.onDragStart?.call(mode);
     widget.config.onDragStart?.call(mode);
 
@@ -428,12 +607,20 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
       autoScrollThreshold: widget.autoScrollThreshold,
       autoScrollMaxSpeed: widget.autoScrollMaxSpeed,
       viewportLeftInset: widget.viewportLeftInset,
+      debugLabel: 'all-day $mode',
       onScroll: (scrollDelta) {
         if (_session == null) return;
-        _session!.addDelta(scrollDelta);
-        final afterScroll = _session!.computeProposed();
-        if (afterScroll != null && afterScroll != _session!.lastEmitted) {
+        _log(
+          'auto-scroll onScroll delta=('
+          '${scrollDelta.dx.toStringAsFixed(2)},'
+          '${scrollDelta.dy.toStringAsFixed(2)})',
+        );
+        final afterScroll = _session!.applyUpdate(scrollDelta);
+        if (afterScroll != null) {
+          _log('auto-scroll emitted ${_formatSlot(afterScroll)}');
           widget.onChanged?.call(afterScroll);
+        } else {
+          _log('auto-scroll produced no slot update');
         }
       },
     );
@@ -446,23 +633,48 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
-    if (_session == null) return;
+    if (_session == null) {
+      _log('drag update ignored: no session');
+      return;
+    }
+
+    _log(
+      'drag update mode=${_session!.mode} delta=('
+      '${details.delta.dx.toStringAsFixed(2)},'
+      '${details.delta.dy.toStringAsFixed(2)}) global=('
+      '${details.globalPosition.dx.toStringAsFixed(1)},'
+      '${details.globalPosition.dy.toStringAsFixed(1)})',
+    );
 
     final updated = _session!.applyUpdate(details.delta);
     if (updated != null) {
+      _log('drag update emitted ${_formatSlot(updated)}');
       widget.onChanged?.call(updated);
+    } else {
+      _log('drag update produced no slot update');
     }
 
     // Feed auto-scroller with latest position and bounds.
     final bounds = _viewportBounds();
     if (bounds != null) {
+      _log('auto-scroll update bounds=${_formatRect(bounds)}');
       _autoScroller?.update(details.globalPosition, bounds);
+    } else {
+      _log('auto-scroll update skipped: viewport bounds null');
     }
   }
 
   void _onDragEnd() {
     final mode = _session?.mode;
+    if (mode == null) {
+      _log('drag end ignored: no active session');
+      return;
+    }
+    _log(
+      'drag end mode=$mode slot=${_slot == null ? 'null' : _formatSlot(_slot!)}',
+    );
     _session = null;
+    _lastInteractiveLayout = null;
     _autoScroller?.dispose();
     _autoScroller = null;
     _updateCursor(SystemMouseCursors.basic);
@@ -471,8 +683,26 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   }
 
   Rect? _viewportBounds() {
-    // Reuse the same viewport detection as SlotOverlay.
-    return _findViewportBounds(context, leftInset: widget.viewportLeftInset);
+    final fromKey = _allDayViewportBoundsFromKey();
+    if (fromKey != null) {
+      _log('viewport bounds from key ${_formatRect(fromKey)}');
+      return fromKey;
+    }
+    final fromWidth = _allDayViewportBounds(context);
+    if (fromWidth != null) {
+      _log('viewport bounds from width ${_formatRect(fromWidth)}');
+      return fromWidth;
+    }
+    final fallback = _findViewportBounds(
+      context,
+      leftInset: widget.viewportLeftInset,
+    );
+    _log(
+      fallback == null
+          ? 'viewport bounds unavailable'
+          : 'viewport bounds fallback ${_formatRect(fallback)}',
+    );
+    return fallback;
   }
 
   /// Walks up the render tree from [context] to find the nearest Stack
@@ -493,6 +723,69 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
       current = current.parent;
     }
     return null;
+  }
+
+  Rect? _allDayViewportBounds(BuildContext context) {
+    final expectedWidth = widget.viewportWidth;
+    if (expectedWidth == null) return null;
+
+    RenderObject? current = context.findRenderObject();
+    while (current != null) {
+      final parent = current.parent;
+      if (parent is RenderObject) {
+        current = parent;
+      } else {
+        break;
+      }
+
+      if (current is RenderBox && current.hasSize) {
+        final size = current.size;
+        if ((size.width - expectedWidth).abs() <= 1.0) {
+          final globalOffset = current.localToGlobal(Offset.zero);
+          return Rect.fromLTWH(
+            globalOffset.dx,
+            globalOffset.dy,
+            size.width,
+            size.height,
+          );
+        }
+      }
+    }
+
+    return null;
+  }
+
+  Rect? _allDayViewportBoundsFromKey() {
+    final renderObject = widget.viewportKey?.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return null;
+    }
+
+    final globalOffset = renderObject.localToGlobal(Offset.zero);
+    return Rect.fromLTWH(
+      globalOffset.dx,
+      globalOffset.dy,
+      renderObject.size.width,
+      renderObject.size.height,
+    );
+  }
+
+  void _log(String message) {
+    if (!debugAllDayDrag) return;
+    debugPrint('[allDaySlot] $message');
+  }
+
+  static String _formatRect(Rect rect) {
+    return '(${rect.left.toStringAsFixed(1)},'
+        '${rect.top.toStringAsFixed(1)},'
+        '${rect.right.toStringAsFixed(1)},'
+        '${rect.bottom.toStringAsFixed(1)})';
+  }
+
+  static String _formatSlot(CalendarSlot slot) {
+    return '${slot.startDateTime.toIso8601String()} -> '
+        '${slot.endDateTime.toIso8601String()} '
+        'days=${slot.totalDaysSpanned}';
   }
 }
 
