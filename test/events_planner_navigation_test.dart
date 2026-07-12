@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:infinite_calendar_view/infinite_calendar_view.dart';
+import 'package:infinite_calendar_view/src/physics/day_snapping_scroll_physics.dart';
 
 void main() {
   test(
