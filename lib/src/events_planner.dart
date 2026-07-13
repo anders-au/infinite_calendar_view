@@ -499,6 +499,19 @@ class EventsPlannerState extends State<EventsPlanner>
       }
     };
     scroll.addListener(_dayChangingListener!);
+
+    // Synchronize the initial day immediately so focusedDay reflects
+    // the visible day before the first scroll.
+    if (scroll.hasClients && dayWidth > 0) {
+      final halfDay = scroll.offset >= 0 ? halfDayWidth : -halfDayWidth;
+      currentIndex = ((scroll.offset + halfDay) / dayWidth).toInt();
+      final currentDay = widget.textDirection == TextDirection.ltr
+          ? getDayFromIndex(currentIndex)
+          : getDayFromIndex(currentIndex + widget.daysShowed - 1);
+      widget.onDayChange?.call(currentDay);
+      widget.controller.updateFocusedDay(currentDay);
+      topLeftCellValueNotifier.value = currentDay;
+    }
   }
 
   /// listen mainHorizontalController scroll stop and adjust to nearest day
