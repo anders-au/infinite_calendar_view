@@ -1631,6 +1631,9 @@ class FullDayParam {
     ),
     this.fullDayEventsBuilder,
     this.fullDayEventBuilder,
+    this.includeEventInAllDayLayout,
+    this.allDayEventLayoutId,
+    this.canShareAllDaySlotRow,
     this.fullDayBackgroundColor,
     this.eventEndGap = 0.0,
     this.maxAllDayEventRows,
@@ -1665,6 +1668,25 @@ class FullDayParam {
 
   /// full day event builder
   final Widget Function(Event event, double width)? fullDayEventBuilder;
+
+  /// Whether an event should reserve a row in the planner's all-day layout.
+  ///
+  /// This is useful when an application renders an event through a separate
+  /// overlay (such as an interactive draft slot) while keeping it in the
+  /// controller for other calendar views. Defaults to including every event.
+  final bool Function(Event event)? includeEventInAllDayLayout;
+
+  /// Stable identity used to break ties while assigning all-day event rows.
+  ///
+  /// Provide this when events are reconstructed during updates; relying on an
+  /// event instance's generated [UniqueKey] would otherwise let equal events
+  /// swap rows between rebuilds.
+  final String Function(Event event)? allDayEventLayoutId;
+
+  /// Whether an all-day event may share row zero with the interactive slot
+  /// when their date ranges do not overlap. This is intended for visual
+  /// previews such as recurrence ghosts, not regular calendar events.
+  final bool Function(Event event)? canShareAllDaySlotRow;
 
   /// color of background top bar
   final Color? fullDayBackgroundColor;

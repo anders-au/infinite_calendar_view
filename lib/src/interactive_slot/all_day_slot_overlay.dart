@@ -37,6 +37,7 @@ class AllDaySlotOverlay extends StatefulWidget {
     this.onChanged,
     this.onDragStart,
     this.onDragEnd,
+    this.rowNotifier,
   });
 
   /// Notifier holding the current [CalendarSlot] (must have `isAllDay == true`).
@@ -97,6 +98,9 @@ class AllDaySlotOverlay extends StatefulWidget {
   /// [mode] is null if the drag was cancelled abnormally.
   final void Function(DragMode? mode)? onDragEnd;
 
+  /// The all-day row assigned by the event overlay.
+  final ValueNotifier<int?>? rowNotifier;
+
   @override
   State<AllDaySlotOverlay> createState() => _AllDaySlotOverlayState();
 }
@@ -122,6 +126,9 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   Widget build(BuildContext context) {
     final slot = _slot;
     if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
+    // The lane is allocated by the event overlay. Do not paint a temporary
+    // row-zero slot before that allocator has reported a result.
+    if (widget.rowNotifier?.value == null) return const SizedBox.shrink();
 
     var layout = _computeLayout(slot);
     if (layout.rect.isEmpty) {
@@ -219,7 +226,8 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     }
 
     const rowPadding = 2.0;
-    final top = rowPadding;
+    final row = widget.rowNotifier?.value ?? 0;
+    final top = rowPadding + row * (widget.eventHeight + rowPadding);
 
     return _AllDaySlotLayout(
       rect: Rect.fromLTRB(left, top, left + width, top + widget.eventHeight),

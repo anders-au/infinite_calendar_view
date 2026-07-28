@@ -72,6 +72,9 @@ class _HorizontalFullDayEventsWidgetState
   /// Tracks the maximum number of event rows needed by the overlay.
   /// Updated every frame by [MultiDayEventsOverlay].
   final ValueNotifier<int> _maxEventRows = ValueNotifier(0);
+
+  /// The interactive all-day slot always owns the top lane.
+  final ValueNotifier<int?> _allDaySlotRow = ValueNotifier(0);
   final GlobalKey _viewportKey = GlobalKey();
   late VoidCallback _maxRowsListener;
 
@@ -94,6 +97,7 @@ class _HorizontalFullDayEventsWidgetState
   void dispose() {
     _maxEventRows.removeListener(_maxRowsListener);
     _maxEventRows.dispose();
+    _allDaySlotRow.dispose();
     super.dispose();
   }
 
@@ -194,6 +198,7 @@ class _HorizontalFullDayEventsWidgetState
                           cellGapWidthPadding: cellGapWidthPadding,
                           getDayFromIndex: widget.getDayFromIndex,
                           maxRowsNotifier: _maxEventRows,
+                          slotRowNotifier: _allDaySlotRow,
                         ),
                       ),
                     // All-day slot selection overlay â€” a pill that appears
@@ -265,7 +270,12 @@ class _HorizontalFullDayEventsWidgetState
     final notifier = widget.calendarSlotNotifier!;
 
     return AnimatedBuilder(
-      animation: Listenable.merge([notifier, widget.dayHorizontalController]),
+      animation: Listenable.merge([
+        notifier,
+        widget.controller,
+        widget.dayHorizontalController,
+        _allDaySlotRow,
+      ]),
       builder: (context, _) {
         final slot = notifier.value;
         if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
@@ -332,6 +342,7 @@ class _HorizontalFullDayEventsWidgetState
           viewportLeftInset: widget.timesIndicatorsWidth,
           viewportWidth: viewportWidth,
           viewportKey: viewportKey,
+          rowNotifier: _allDaySlotRow,
           onDragStart: onSlotDragStart,
           onDragEnd: onSlotDragEnd,
           onChanged: (updated) {
@@ -359,6 +370,7 @@ class MultiDayEventsOverlay extends StatefulWidget {
     required this.cellGapWidthPadding,
     required this.getDayFromIndex,
     this.maxRowsNotifier,
+    this.slotRowNotifier,
   });
 
   final EventsController controller;
@@ -372,6 +384,10 @@ class MultiDayEventsOverlay extends StatefulWidget {
   /// count (including any slot offset).  Used by the parent widget to
   /// dynamically size the all-day bar.
   final ValueNotifier<int>? maxRowsNotifier;
+
+  /// Row assigned to the interactive all-day slot.  The overlay consumes
+  /// this so it can share a lane with events on non-overlapping days.
+  final ValueNotifier<int?>? slotRowNotifier;
 
   @override
   State<MultiDayEventsOverlay> createState() => _MultiDayEventsOverlayState();
@@ -462,6 +478,9 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
         returnMultiDayEvents: widget.fullDayParam.showMultiDayEvents,
       );
       for (final e in dayEvents ?? []) {
+        if (widget.fullDayParam.includeEventInAllDayLayout?.call(e) == false) {
+          continue;
+        }
         if (e.isSingleMidnightCrossingTimedEvent) continue;
         if (e.isMultiDay) {
           if ((e.daysIndex ?? 0) != 0) continue;
@@ -480,6 +499,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     if (eventByKey.isEmpty) {
       final hasSlot =
           widget.controller.slotSelectionNotifier.value?.isAllDay == true;
+      _reportSlotRow(0);
       widget.maxRowsNotifier?.value = hasSlot ? 1 : 0;
       return const SizedBox.shrink();
     }
@@ -506,7 +526,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       spanByKey[key] = daysSpan;
     }
 
-    // Sort by start time, then longest span first.
+    // Sort by start time, then longest span first, then a stable event ID.
     // This ensures multi-day events always precede same-start single-day
     // events, producing stable row assignment as the viewport scrolls.
     final keys = eventByKey.keys.toList()
@@ -515,7 +535,9 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
           eventByKey[b]!.startTime,
         );
         if (timeComp != 0) return timeComp;
-        return (spanByKey[b] ?? 1).compareTo(spanByKey[a] ?? 1); // longer first
+        final spanComp = (spanByKey[b] ?? 1).compareTo(spanByKey[a] ?? 1);
+        if (spanComp != 0) return spanComp; // longer first
+        return _layoutId(eventByKey[a]!).compareTo(_layoutId(eventByKey[b]!));
       });
 
     // Greedy row assignment: first available row with no overlap.
@@ -534,20 +556,43 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       rowByKey[key] = r;
     }
 
-    // When an all-day interactive slot is active, shift every event
-    // down by one row so the slot always sits on top without overlap.
+    // The interactive all-day slot owns row zero. Recurrence-preview events
+    // may share it on non-overlapping days; regular events stay below.
     final hasSlotSelection =
         widget.controller.slotSelectionNotifier.value?.isAllDay == true;
     if (hasSlotSelection) {
+      final slot = widget.controller.slotSelectionNotifier.value!;
+      final baseDay = widget.getDayFromIndex(0).withoutTime;
+      final indexDayDelta = widget
+          .getDayFromIndex(1)
+          .withoutTime
+          .difference(baseDay)
+          .inDays;
+      final slotStart =
+          slot.startDateTime.withoutTime.difference(baseDay).inDays ~/
+          indexDayDelta;
+      final slotEnd = slotStart + slot.totalDaysSpanned - 1;
+
       for (final key in rowByKey.keys) {
-        rowByKey[key] = rowByKey[key]! + 1;
+        final eventStart = startIndexByKey[key]!;
+        final eventEnd = eventStart + spanByKey[key]! - 1;
+        final sharesTopRow =
+            widget.fullDayParam.canShareAllDaySlotRow?.call(eventByKey[key]!) ==
+                true &&
+            (eventEnd < slotStart || eventStart > slotEnd);
+        rowByKey[key] = sharesTopRow ? 0 : rowByKey[key]! + 1;
       }
     }
 
-    // Report total rows: events + optional slot row.
-    widget.maxRowsNotifier?.value = rowByKey.values.isEmpty
-        ? (hasSlotSelection ? 1 : 0)
-        : (rowByKey.values.reduce((a, b) => a > b ? a : b) + 1);
+    _reportSlotRow(0);
+
+    // Report total rows, including the reserved interactive-slot row.
+    final maxEventRow = rowByKey.values.isEmpty
+        ? -1
+        : rowByKey.values.reduce((a, b) => a > b ? a : b);
+    widget.maxRowsNotifier?.value =
+        (hasSlotSelection ? (maxEventRow > 0 ? maxEventRow : 0) : maxEventRow) +
+        1;
 
     final List<Widget> positioned = [];
     for (final key in keys) {
@@ -656,6 +701,19 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
 
     if (positioned.isEmpty) return const SizedBox.shrink();
     return Stack(clipBehavior: Clip.hardEdge, children: positioned);
+  }
+
+  void _reportSlotRow(int row) {
+    final notifier = widget.slotRowNotifier;
+    if (notifier == null || notifier.value == row) return;
+    notifier.value = row;
+  }
+
+  String _layoutId(Event event) {
+    return widget.fullDayParam.allDayEventLayoutId?.call(event) ??
+        '${event.eventType}|${event.title}|${event.description}|'
+            '${event.startTime.microsecondsSinceEpoch}|'
+            '${event.endTime?.microsecondsSinceEpoch}|${event.columnIndex}';
   }
 }
 
