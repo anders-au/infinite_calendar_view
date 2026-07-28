@@ -195,22 +195,35 @@ class CalendarSlot {
     final days = config.enableHorizontalAxis
         ? (delta.dx / dayWidth).round()
         : 0;
-    final minuteDelta = config.enableVerticalAxis
-        ? _roundMinutes(delta.dy / heightPerMinute, config.stepMinutes)
-        : 0;
+    final rawMinuteDelta = config.enableVerticalAxis
+        ? delta.dy / heightPerMinute
+        : 0.0;
 
-    final totalMinuteShift =
-        days * PlannerTimeMapper.minutesPerDay + minuteDelta;
+    final dayShift = days * PlannerTimeMapper.minutesPerDay;
 
     CalendarSlot result;
     switch (mode) {
       case DragMode.shift:
-        final newStart = startDateTime.add(Duration(minutes: totalMinuteShift));
+        final newStart = _snapDateTime(
+          startDateTime.add(
+            Duration(
+              minutes: dayShift + rawMinuteDelta.round(),
+            ),
+          ),
+          config.stepMinutes,
+        );
         result = withStart(newStart);
         break;
 
       case DragMode.extendStart:
-        final newStart = startDateTime.add(Duration(minutes: totalMinuteShift));
+        final newStart = _snapDateTime(
+          startDateTime.add(
+            Duration(
+              minutes: dayShift + rawMinuteDelta.round(),
+            ),
+          ),
+          config.stepMinutes,
+        );
         final newDur = endDateTime.difference(newStart);
         if (newDur.inMinutes <= 0) {
           final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
@@ -224,7 +237,15 @@ class CalendarSlot {
         break;
 
       case DragMode.extendEnd:
-        final newDur = duration + Duration(minutes: totalMinuteShift);
+        final newEnd = _snapDateTime(
+          endDateTime.add(
+            Duration(
+              minutes: dayShift + rawMinuteDelta.round(),
+            ),
+          ),
+          config.stepMinutes,
+        );
+        final newDur = newEnd.difference(startDateTime);
         if (newDur.inMinutes <= 0) {
           final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
           result = withDuration(Duration(minutes: minDur));
@@ -241,7 +262,7 @@ class CalendarSlot {
         '[$pkg] applyDelta  '
         'mode=$mode  '
         'delta=(${delta.dx.toStringAsFixed(1)},${delta.dy.toStringAsFixed(1)})  '
-        'days=$days  minDelta=$minuteDelta  totalShift=$totalMinuteShift  '
+        'days=$days  rawMinDelta=$rawMinuteDelta  dayShift=$dayShift  '
         'anchorStart=$startDateTime  anchorEnd=$endDateTime  '
         'resultStart=${result.startDateTime}  resultEnd=${result.endDateTime}  '
         'resultDays=${result.totalDaysSpanned}',
@@ -316,8 +337,14 @@ class CalendarSlot {
     );
   }
 
-  static int _roundMinutes(double raw, int step) {
-    return (step * (raw / step).round()).round();
+  static DateTime _snapDateTime(DateTime value, int step) {
+    final minuteOfDay = value.hour * 60 + value.minute;
+    final snappedMinute = step * (minuteOfDay / step).round();
+    return DateTime(
+      value.year,
+      value.month,
+      value.day,
+    ).add(Duration(minutes: snappedMinute));
   }
 
   static bool _isMidnight(DateTime dt) =>

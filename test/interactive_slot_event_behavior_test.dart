@@ -170,15 +170,8 @@ void main() {
       ),
     );
     expect(
-      customPaints.where(
-        (paint) =>
-            paint.foregroundPainter is HoursPainter &&
-            !(paint.foregroundPainter! as HoursPainter).showRegularHours &&
-            (paint.foregroundPainter! as HoursPainter)
-                    .floatingIndicatorTopInset ==
-                10,
-      ),
-      hasLength(1),
+      customPaints.where((paint) => paint.foregroundPainter is HoursPainter),
+      isEmpty,
     );
     expect(
       (customPaints
@@ -188,21 +181,35 @@ void main() {
                   )
                   .foregroundPainter
               as _SlotAwareEmptyPainter)
-          .hiddenMinutes,
+          .indicators!
+          .minutes,
       [450, 510],
+    );
+    expect(
+      (customPaints
+                  .singleWhere(
+                    (paint) =>
+                        paint.foregroundPainter is _SlotAwareEmptyPainter,
+                  )
+                  .foregroundPainter
+              as _SlotAwareEmptyPainter)
+          .indicators!
+          .indicators
+          .map((indicator) => indicator.boundary),
+      [SlotTimeIndicatorBoundary.start, SlotTimeIndicatorBoundary.end],
     );
   });
 }
 
 class _SlotAwareEmptyPainter extends CustomPainter
     implements SlotAwareTimeIndicatorPainter {
-  _SlotAwareEmptyPainter({this.hiddenMinutes = const []});
+  _SlotAwareEmptyPainter({this.indicators});
 
-  final List<int> hiddenMinutes;
+  final SlotTimeIndicators? indicators;
 
   @override
-  CustomPainter withHiddenTimeIndicatorMinutes(List<int> minutes) =>
-      _SlotAwareEmptyPainter(hiddenMinutes: minutes);
+  CustomPainter withSlotTimeIndicators(SlotTimeIndicators indicators) =>
+      _SlotAwareEmptyPainter(indicators: indicators);
 
   @override
   void paint(Canvas canvas, Size size) {}

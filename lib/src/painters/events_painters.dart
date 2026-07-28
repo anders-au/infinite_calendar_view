@@ -4,10 +4,37 @@ import 'package:flutter/material.dart';
 import '../../infinite_calendar_view.dart';
 import '../utils/planner_time_mapper.dart';
 
-/// Optional contract for custom time-column painters that need to suppress
-/// stable labels behind interactive-slot start/end indicators.
+enum SlotTimeIndicatorBoundary { start, end }
+
+class SlotTimeIndicator {
+  const SlotTimeIndicator({required this.minute, required this.boundary});
+
+  final int minute;
+  final SlotTimeIndicatorBoundary boundary;
+}
+
+class SlotTimeIndicators {
+  const SlotTimeIndicators({
+    required this.indicators,
+    required this.color,
+    required this.backgroundColor,
+    required this.use24HourFormat,
+    this.textStyle,
+  });
+
+  final List<SlotTimeIndicator> indicators;
+  List<int> get minutes =>
+      indicators.map((indicator) => indicator.minute).toList();
+  final Color color;
+  final Color backgroundColor;
+  final bool use24HourFormat;
+  final TextStyle? textStyle;
+}
+
+/// Optional contract that lets a custom time-column painter render interactive
+/// slot indicators using the same override path as its current-time indicator.
 abstract interface class SlotAwareTimeIndicatorPainter {
-  CustomPainter withHiddenTimeIndicatorMinutes(List<int> minutes);
+  CustomPainter withSlotTimeIndicators(SlotTimeIndicators indicators);
 }
 
 class LinesPainter extends CustomPainter {

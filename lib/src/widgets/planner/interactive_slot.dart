@@ -1503,13 +1503,20 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     int Function(double, int) roundMins,
   ) {
     final slot = widget.slot;
-    final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
+    final rawMinutesDelta = localOffset.dy / mapper.heightPerMinute;
     final daysDelta = (localOffset.dx / widget.dayWidth).round();
     final targetMidnight = _session!.snapStartDate.withoutTime.addCalendarDays(daysDelta);
     // DateTime.add handles minute values that cross day boundaries, so
     // we no longer clamp to a single-day range.  Multi-day slots can
     // freely move across midnight.
-    final newStart = targetMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
+    final newStart = targetMidnight.add(
+      Duration(
+        minutes: roundMins(
+          _session!.snapStartDate.totalMinutes + rawMinutesDelta,
+          round,
+        ),
+      ),
+    );
     // Only clamp if multi-day is NOT enabled and the slot would cross midnight.
     final maxDuration = widget.dayParam.slotInteractionConfig.maxDurationMinutes;
     if (maxDuration == null) {
@@ -1573,10 +1580,17 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     int Function(double, int) roundMins,
   ) {
     final slot = widget.slot;
-    final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
+    final rawMinutesDelta = localOffset.dy / mapper.heightPerMinute;
     final snapMidnight = _session!.snapStartDate.withoutTime;
     // DateTime.add naturally handles negative minute values (previous day).
-    final newStart = snapMidnight.add(Duration(minutes: _session!.snapStartDate.totalMinutes + minutesDeltaRounded));
+    final newStart = snapMidnight.add(
+      Duration(
+        minutes: roundMins(
+          _session!.snapStartDate.totalMinutes + rawMinutesDelta,
+          round,
+        ),
+      ),
+    );
     var newDuration = _session!.snapEndDate.difference(newStart).inMinutes;
     final maxDuration = widget.dayParam.slotInteractionConfig.maxDurationMinutes;
     if (maxDuration != null) {
@@ -1639,8 +1653,15 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // Convert pixel delta directly to minutes — a slot's height is always
     // duration × heightPerMinute with no cell gaps inside, so this avoids
     // the fragile minuteToYExtended / yToMinuteExtended round-trip.
-    final minutesDeltaRounded = roundMins(localOffset.dy / mapper.heightPerMinute, round);
-    var newDuration = _session!.snapDurationMin + minutesDeltaRounded;
+    final rawMinutesDelta = localOffset.dy / mapper.heightPerMinute;
+    final snapEndMinute =
+        _session!.snapStartDate.totalMinutes + _session!.snapDurationMin;
+    final snappedEndMinute = roundMins(
+      snapEndMinute + rawMinutesDelta,
+      round,
+    );
+    var newDuration =
+        snappedEndMinute - _session!.snapStartDate.totalMinutes;
     // Cap duration based on configured maximum duration.
     final maxDuration = widget.dayParam.slotInteractionConfig.maxDurationMinutes;
     if (maxDuration != null) {
@@ -1661,7 +1682,6 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
     // Never let the end cross past the nearest midnight boundary,
     // matching single-day behavior for all slots.  To extend into
     // another day the user must use the API.
-    final snapEndMinute = _session!.snapStartDate.totalMinutes + _session!.snapDurationMin;
     final nextMidnight = ((snapEndMinute - 1) ~/ PlannerTimeMapper.minutesPerDay + 1) * PlannerTimeMapper.minutesPerDay;
     final maxMidnightDuration = nextMidnight - _session!.snapStartDate.totalMinutes;
     if (newDuration > maxMidnightDuration) {

@@ -38,22 +38,34 @@ class VerticalTimeIndicatorWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final slot = interactiveSlot;
-    final slotMinutes =
+    final slotIndicatorEntries =
         slot == null ||
             slot.isAllDay ||
             !slotInteractionConfig.showTimeIndicators
-        ? const <int>[]
-        : _slotIndicatorMinutes(slot);
+        ? const <SlotTimeIndicator>[]
+        : _slotTimeIndicators(slot);
+    final slotMinutes = slotIndicatorEntries
+        .map((indicator) => indicator.minute)
+        .toList();
     final slotIndicatorColor =
         slotInteractionConfig.timeIndicatorColor ??
         slotInteractionConfig.accentColor ??
         theme.colorScheme.secondary;
     final rawCustomPainter = timesIndicatorsParam.timesIndicatorsCustomPainter
         ?.call(_timeMapper.heightPerMinute);
+    final slotIndicators = SlotTimeIndicators(
+      indicators: slotIndicatorEntries,
+      color: slotIndicatorColor,
+      backgroundColor: theme.colorScheme.surface,
+      use24HourFormat: slotInteractionConfig.use24HourFormat,
+      textStyle: slotInteractionConfig.timeIndicatorTextStyle,
+    );
     final customPainter = rawCustomPainter is SlotAwareTimeIndicatorPainter
         ? (rawCustomPainter as SlotAwareTimeIndicatorPainter)
-              .withHiddenTimeIndicatorMinutes(slotMinutes)
+              .withSlotTimeIndicators(slotIndicators)
         : rawCustomPainter;
+    final customPainterRendersSlot =
+        rawCustomPainter is SlotAwareTimeIndicatorPainter;
     final defaultPainter = HoursPainter(
       heightPerMinute: _timeMapper.heightPerMinute,
       plannerTimeMapper: _timeMapper,
@@ -81,7 +93,9 @@ class VerticalTimeIndicatorWidget extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             CustomPaint(foregroundPainter: customPainter ?? defaultPainter),
-            if (customPainter != null && slotMinutes.isNotEmpty)
+            if (customPainter != null &&
+                !customPainterRendersSlot &&
+                slotMinutes.isNotEmpty)
               CustomPaint(
                 foregroundPainter: HoursPainter(
                   heightPerMinute: _timeMapper.heightPerMinute,
@@ -104,7 +118,7 @@ class VerticalTimeIndicatorWidget extends StatelessWidget {
     );
   }
 
-  List<int> _slotIndicatorMinutes(CalendarSlot slot) {
+  List<SlotTimeIndicator> _slotTimeIndicators(CalendarSlot slot) {
     final start = slot.startDateTime;
     final end = slot.endDateTime;
     final startMinute = start.hour * 60 + start.minute;
@@ -112,8 +126,16 @@ class VerticalTimeIndicatorWidget extends StatelessWidget {
     if (endMinute == 0 && end.isAfter(start)) {
       endMinute = Event.minutesPerDay;
     }
-    return startMinute == endMinute
-        ? <int>[startMinute]
-        : <int>[startMinute, endMinute];
+    return [
+      SlotTimeIndicator(
+        minute: startMinute,
+        boundary: SlotTimeIndicatorBoundary.start,
+      ),
+      if (startMinute != endMinute)
+        SlotTimeIndicator(
+          minute: endMinute,
+          boundary: SlotTimeIndicatorBoundary.end,
+        ),
+    ];
   }
 }
