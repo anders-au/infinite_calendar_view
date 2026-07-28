@@ -531,6 +531,7 @@ class _EventsListWidgetState extends State<EventsListWidget> {
   List<Event>? events;
   var organizedEvents = <OrganizedEvent>[];
   late VoidCallback eventListener;
+  late VoidCallback slotListener;
 
   @override
   void initState() {
@@ -538,13 +539,18 @@ class _EventsListWidgetState extends State<EventsListWidget> {
     events = getDayColumnEvents();
     organizedEvents = getOrganizedEvents(events);
     eventListener = () => updateEvents();
+    slotListener = () {
+      if (mounted) setState(() {});
+    };
     widget.controller.addListener(eventListener);
+    widget.controller.slotSelectionNotifier.addListener(slotListener);
   }
 
   @override
   void dispose() {
-    super.dispose();
     widget.controller.removeListener(eventListener);
+    widget.controller.slotSelectionNotifier.removeListener(slotListener);
+    super.dispose();
   }
 
   List<Event>? getDayColumnEvents() {
@@ -558,6 +564,7 @@ class _EventsListWidgetState extends State<EventsListWidget> {
         ?.where(
           (e) =>
               e.columnIndex == widget.columIndex &&
+              widget.dayParam.includeEventInTimedLayout?.call(e) != false &&
               (!e.isMultiDay ||
                   widget.showMultiDayEvents ||
                   e.isSingleMidnightCrossingTimedEvent),
@@ -618,35 +625,54 @@ class _EventsListWidgetState extends State<EventsListWidget> {
     var bottom = widget.plannerHeight - eventBottom;
     var height = widget.plannerHeight - (bottom + top);
     var width = widget.dayWidth - (left + right);
+    final slot = widget.controller.slotSelectionNotifier.value;
+    final overlapsSlot = slot != null && _overlaps(slot, organizedEvent.event);
+    final event = widget.dayParam.dayEventBuilder != null
+        ? widget.dayParam.dayEventBuilder!.call(
+            organizedEvent.event,
+            height,
+            width,
+            mapper.heightPerMinute,
+          )
+        : DefaultDayEvent(
+            title: organizedEvent.event.title,
+            description: organizedEvent.event.description,
+            color: organizedEvent.event.color,
+            textColor: organizedEvent.event.textColor,
+            height: height,
+            width: width,
+            hideTopBorder:
+                organizedEvent.event.isMultiDay &&
+                organizedEvent.event.timedStartMinuteInDay == 0,
+            hideBottomBorder:
+                organizedEvent.event.isMultiDay &&
+                organizedEvent.event.timedEndMinuteInDay == Event.minutesPerDay,
+          );
 
     return Positioned(
       left: left,
       top: top,
       right: right,
       bottom: bottom,
-      child: widget.dayParam.dayEventBuilder != null
-          ? widget.dayParam.dayEventBuilder!.call(
-              organizedEvent.event,
-              height,
-              width,
-              mapper.heightPerMinute,
-            )
-          : DefaultDayEvent(
-              title: organizedEvent.event.title,
-              description: organizedEvent.event.description,
-              color: organizedEvent.event.color,
-              textColor: organizedEvent.event.textColor,
-              height: height,
-              width: width,
-              hideTopBorder:
-                  organizedEvent.event.isMultiDay &&
-                  organizedEvent.event.timedStartMinuteInDay == 0,
-              hideBottomBorder:
-                  organizedEvent.event.isMultiDay &&
-                  organizedEvent.event.timedEndMinuteInDay ==
-                      Event.minutesPerDay,
-            ),
+      child: IgnorePointer(
+        ignoring: slot != null,
+        child: Opacity(
+          opacity: overlapsSlot
+              ? widget.dayParam.slotInteractionConfig.overlappingEventOpacity
+              : 1,
+          child: event,
+        ),
+      ),
     );
+  }
+
+  bool _overlaps(CalendarSlot slot, Event event) {
+    if (slot.isAllDay || slot.columnIndex != event.columnIndex) return false;
+    final eventStart = event.effectiveStartTime ?? event.startTime;
+    final eventEnd = event.effectiveEndTime ?? event.endTime;
+    if (eventEnd == null) return false;
+    return eventStart.isBefore(slot.endDateTime) &&
+        eventEnd.isAfter(slot.startDateTime);
   }
 }
 

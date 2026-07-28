@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/widgets.dart';
 
 import 'slot_selection.dart';
@@ -31,6 +29,10 @@ class SlotInteractionConfig {
     this.slotBorderRadius = 8.0,
     this.showDefaultSlotText = true,
     this.use24HourFormat = true,
+    this.overlappingEventOpacity = 0.4,
+    this.showTimeIndicators = true,
+    this.timeIndicatorColor,
+    this.timeIndicatorTextStyle,
     this.onChanged,
     this.onTap,
     this.onLongPress,
@@ -46,7 +48,10 @@ class SlotInteractionConfig {
     this.slotBuilder,
     this.topHandleBuilder,
     this.bottomHandleBuilder,
-  });
+  }) : assert(
+         overlappingEventOpacity >= 0 && overlappingEventOpacity <= 1,
+         'overlappingEventOpacity must be between 0 and 1',
+       );
 
   // ── drag behaviour ───────────────────────────────────────────────────
 
@@ -136,6 +141,26 @@ class SlotInteractionConfig {
   /// Use 24-hour format for time labels (false = 12-hour AM/PM).
   /// Defaults to true.
   final bool use24HourFormat;
+
+  /// Opacity applied to existing events whose time range overlaps this
+  /// interactive slot.
+  ///
+  /// The interactive slot is an overlay and never participates in the event
+  /// arranger, so existing events retain their normal width. Defaults to 0.4.
+  final double overlappingEventOpacity;
+
+  /// Whether the slot's start and end times are shown in the planner's time
+  /// indicator column. Defaults to true.
+  final bool showTimeIndicators;
+
+  /// Colour of the slot start/end labels in the time indicator column.
+  ///
+  /// Falls back to [accentColor], then the theme's secondary colour.
+  final Color? timeIndicatorColor;
+
+  /// Optional text style for the slot start/end labels in the time indicator
+  /// column. Its colour overrides [timeIndicatorColor] when supplied.
+  final TextStyle? timeIndicatorTextStyle;
 
   // ── callbacks ────────────────────────────────────────────────────────
 
@@ -230,7 +255,8 @@ class SlotInteractionConfig {
     dynamic columnsParam,
     double heightPerMinute,
     void Function(CalendarSlot? updatedSlot) onChanged,
-  )? slotBuilder;
+  )?
+  slotBuilder;
 
   /// Custom widget for the top (start) resize handle indicator.
   ///

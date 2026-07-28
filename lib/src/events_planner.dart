@@ -522,8 +522,9 @@ class EventsPlannerState extends State<EventsPlanner>
       final scroll = mainHorizontalController;
       // Only act when the scroll *appears* to have stopped.
       if (!_listenHorizontalScrollDayChange ||
-          scroll.position.isScrollingNotifier.value)
+          scroll.position.isScrollingNotifier.value) {
         return;
+      }
       if (_isSlotDragging || _plannerPointerDownCount > 0) return;
 
       // When a drag ends the notifier briefly flips to false before
@@ -1087,6 +1088,10 @@ class EventsPlannerState extends State<EventsPlanner>
       slotBorderRadius: userConfig.slotBorderRadius,
       showDefaultSlotText: userConfig.showDefaultSlotText,
       use24HourFormat: userConfig.use24HourFormat,
+      overlappingEventOpacity: userConfig.overlappingEventOpacity,
+      showTimeIndicators: userConfig.showTimeIndicators,
+      timeIndicatorColor: userConfig.timeIndicatorColor,
+      timeIndicatorTextStyle: userConfig.timeIndicatorTextStyle,
       enableTapSlotSelection: userConfig.enableTapSlotSelection,
       enableLongPressSlotSelection: userConfig.enableLongPressSlotSelection,
       enableDoubleTapSlotSelection: userConfig.enableDoubleTapSlotSelection,
@@ -1143,17 +1148,21 @@ class EventsPlannerState extends State<EventsPlanner>
     );
   }
 
-  VerticalTimeIndicatorWidget getVerticalTimeIndicatorWidget(
-    Color currentHourIndicatorColor,
-  ) {
-    return VerticalTimeIndicatorWidget(
-      textDirection: widget.textDirection,
-      timesIndicatorsParam: widget.timesIndicatorsParam,
-      heightPerMinute: heightPerMinute,
-      plannerTimeMapper: plannerTimeMapper,
-      currentHourIndicatorHourVisibility:
-          widget.currentHourIndicatorParam.currentHourIndicatorHourVisibility,
-      currentHourIndicatorColor: currentHourIndicatorColor,
+  Widget getVerticalTimeIndicatorWidget(Color currentHourIndicatorColor) {
+    return ValueListenableBuilder<CalendarSlot?>(
+      valueListenable: _controller.slotSelectionNotifier,
+      builder: (context, slot, _) => VerticalTimeIndicatorWidget(
+        textDirection: widget.textDirection,
+        timesIndicatorsParam: widget.timesIndicatorsParam,
+        heightPerMinute: heightPerMinute,
+        plannerTimeMapper: plannerTimeMapper,
+        currentHourIndicatorHourVisibility:
+            widget.currentHourIndicatorParam.currentHourIndicatorHourVisibility,
+        currentHourIndicatorColor: currentHourIndicatorColor,
+        interactiveSlot: slot,
+        slotInteractionConfig: widget.dayParam.slotInteractionConfig,
+        floatingIndicatorTopInset: widget.dayParam.dayTopPadding,
+      ),
     );
   }
 
@@ -1975,6 +1984,7 @@ class DayParam {
     this.dayBottomPadding = 20,
     this.dayCustomPainter,
     this.dayEventBuilder,
+    this.includeEventInTimedLayout,
     this.onSlotMinutesRound = 30,
     this.onSlotRoundAlwaysBefore = false,
     this.onSlotTap,
@@ -2020,6 +2030,14 @@ class DayParam {
     double heightPerMinute,
   )?
   dayEventBuilder;
+
+  /// Controls whether an event participates in the timed planner layout.
+  ///
+  /// This is useful when the same draft is retained as an [Event] for other
+  /// calendar views but rendered by the planner's interactive slot overlay.
+  /// Returning false prevents that hidden duplicate from reserving collision
+  /// width. Defaults to including every event.
+  final bool Function(Event event)? includeEventInTimedLayout;
 
   /// round date to nearest minutes date
   final int onSlotMinutesRound;

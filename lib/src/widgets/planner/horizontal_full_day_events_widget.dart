@@ -663,37 +663,40 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
           top: top,
           width: width,
           height: eventHeight,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onLongPressStart: (_) {
-              // Long-pressing an existing all-day event creates a new
-              // AllDaySlotSelection on the event's start day.  It always
-              // occupies row 0 (the top track); existing events are
-              // pushed down by the bar's auto-resize system.
-              final param = widget.fullDayParam.allDaySlotInteractionConfig;
-              final day = widget.getDayFromIndex(startIndex).withoutTime;
-              final calSlot = CalendarSlot.allDayFromTap(
-                columnIndex: 0,
-                startDate: day,
-                endDate: day,
-              );
-              widget.controller.slotSelectionNotifier.value = calSlot;
-              param.onLongPress?.call(calSlot);
-              param.onChanged?.call(calSlot);
-            },
-            child:
-                widget.fullDayParam.fullDayEventBuilder?.call(event, width) ??
-                DefaultDayEvent(
-                  height: eventHeight,
-                  width: width,
-                  title: event.title,
-                  titleFontSize: 10,
-                  description: event.description,
-                  color: event.color,
-                  textColor: event.textColor,
-                  hideLeftBorder: isStartOffScreen,
-                  hideRightBorder: isEndOffScreen,
-                ),
+          child: IgnorePointer(
+            ignoring: widget.controller.slotSelectionNotifier.value != null,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onLongPressStart: (_) {
+                // Long-pressing an existing all-day event creates a new
+                // AllDaySlotSelection on the event's start day.  It always
+                // occupies row 0 (the top track); existing events are
+                // pushed down by the bar's auto-resize system.
+                final param = widget.fullDayParam.allDaySlotInteractionConfig;
+                final day = widget.getDayFromIndex(startIndex).withoutTime;
+                final calSlot = CalendarSlot.allDayFromTap(
+                  columnIndex: 0,
+                  startDate: day,
+                  endDate: day,
+                );
+                widget.controller.slotSelectionNotifier.value = calSlot;
+                param.onLongPress?.call(calSlot);
+                param.onChanged?.call(calSlot);
+              },
+              child:
+                  widget.fullDayParam.fullDayEventBuilder?.call(event, width) ??
+                  DefaultDayEvent(
+                    height: eventHeight,
+                    width: width,
+                    title: event.title,
+                    titleFontSize: 10,
+                    description: event.description,
+                    color: event.color,
+                    textColor: event.textColor,
+                    hideLeftBorder: isStartOffScreen,
+                    hideRightBorder: isEndOffScreen,
+                  ),
+            ),
           ),
         ),
       );
