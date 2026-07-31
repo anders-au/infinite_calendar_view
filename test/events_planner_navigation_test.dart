@@ -45,6 +45,27 @@ void main() {
     expect(simulation.x(10), moreOrLessEquals(100, epsilon: 0.01));
   });
 
+  test('DaySnappingScrollPhysics preserves multi-page fling momentum', () {
+    const physics = DaySnappingScrollPhysics(
+      pageSize: 100,
+      parent: ClampingScrollPhysics(),
+    );
+    final metrics = FixedScrollMetrics(
+      minScrollExtent: -1000,
+      maxScrollExtent: 1000,
+      pixels: 40,
+      viewportDimension: 300,
+      axisDirection: AxisDirection.right,
+      devicePixelRatio: 1,
+    );
+
+    final simulation = physics.createBallisticSimulation(metrics, 2000)!;
+    final settledOffset = simulation.x(10);
+
+    expect(settledOffset, greaterThanOrEqualTo(200));
+    expect(settledOffset % 100, moreOrLessEquals(0, epsilon: 0.01));
+  });
+
   testWidgets('animateToDate preserves the current 3-day bracket alignment', (
     tester,
   ) async {

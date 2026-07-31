@@ -36,6 +36,8 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
     ScrollMetrics position,
     double velocity,
   ) {
+    final simulationTolerance = toleranceFor(position);
+
     // Let the parent chain handle friction / bouncing.
     final Simulation? simulation = super.createBallisticSimulation(
       position,
@@ -48,7 +50,7 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
       // boundary using the same spring as PageScrollPhysics so the
       // feel is identical.
       final snappedEnd = (position.pixels / pageSize).round() * pageSize;
-      if ((snappedEnd - position.pixels).abs() < tolerance.distance) {
+      if ((snappedEnd - position.pixels).abs() < simulationTolerance.distance) {
         return null;
       }
       return ScrollSpringSimulation(
@@ -56,7 +58,7 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
         position.pixels,
         snappedEnd,
         0,
-        tolerance: tolerance,
+        tolerance: simulationTolerance,
       );
     }
 
@@ -65,16 +67,24 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
 
     // Determine the target boundary.
     //
-    // When the user flings with enough velocity we commit to the next
-    // boundary from the current drag position. This keeps navigation
-    // deliberate without letting an ordinary fling skip multiple pages.
+    // A deliberate fling keeps the parent's natural travel distance, rounded
+    // to a snap boundary. This matters when one boundary is only a fraction
+    // of the viewport, as it is in multi-day planner layouts.
     final double snappedEnd;
     if (velocity > directionalVelocityThreshold) {
-      // Strong forward fling — go to the next boundary.
-      snappedEnd = ((position.pixels / pageSize).floor() + 1) * pageSize;
+      final naturalBoundary = (naturalEnd / pageSize).round() * pageSize;
+      final nextBoundary =
+          ((position.pixels / pageSize).floor() + 1) * pageSize;
+      snappedEnd = naturalBoundary < nextBoundary
+          ? nextBoundary
+          : naturalBoundary;
     } else if (velocity < -directionalVelocityThreshold) {
-      // Strong backward fling — go to the previous boundary.
-      snappedEnd = ((position.pixels / pageSize).ceil() - 1) * pageSize;
+      final naturalBoundary = (naturalEnd / pageSize).round() * pageSize;
+      final previousBoundary =
+          ((position.pixels / pageSize).ceil() - 1) * pageSize;
+      snappedEnd = naturalBoundary > previousBoundary
+          ? previousBoundary
+          : naturalBoundary;
     } else {
       // Gentle fling or near-stop — snap to whichever boundary the
       // drag actually left the viewport nearest. This avoids light
@@ -82,7 +92,7 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
       snappedEnd = (position.pixels / pageSize).round() * pageSize;
     }
 
-    if ((snappedEnd - naturalEnd).abs() < tolerance.distance) {
+    if ((snappedEnd - naturalEnd).abs() < simulationTolerance.distance) {
       // Already on or extremely close to a boundary — let the
       // original friction simulation play out naturally.
       return simulation;
@@ -96,7 +106,7 @@ class DaySnappingScrollPhysics extends ScrollPhysics {
       position.pixels,
       snappedEnd,
       velocity,
-      tolerance: tolerance,
+      tolerance: simulationTolerance,
     );
   }
 }

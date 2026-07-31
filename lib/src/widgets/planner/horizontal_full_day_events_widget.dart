@@ -540,12 +540,44 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
         return _layoutId(eventByKey[a]!).compareTo(_layoutId(eventByKey[b]!));
       });
 
-    // Greedy row assignment: first available row with no overlap.
+    // Keep lookback events available so ongoing multi-day events can be
+    // discovered, but do not let events outside the current viewport reserve
+    // rows. Repacking only the visible intersections collapses vacated lanes
+    // as soon as an event's trailing edge scrolls off-screen.
+    final visibleKeys = keys.where((key) {
+      final startIndex = startIndexByKey[key]!;
+      final daysSpan = spanByKey[key]!;
+      final endIndex = startIndex + daysSpan - 1;
+      final naturalLeft = startIndex * widget.dayWidth - offset + pad;
+      final naturalWidth =
+          widget.dayWidth * daysSpan -
+          pad * 2 -
+          widget.fullDayParam.eventEndGap;
+      final naturalRight = naturalLeft + naturalWidth;
+
+      if (daysSpan > 1) {
+        return endIndex >= firstVisibleIndex &&
+            startIndex <= lastVisibleIndex &&
+            naturalRight > 0 &&
+            naturalLeft < viewportWidth;
+      }
+      return naturalRight > 0 && naturalLeft < viewportWidth;
+    }).toList();
+
+    // Greedy row assignment: first available row with no overlap. Clamp each
+    // span to the visible day range so lane ownership describes what the user
+    // can currently see rather than historical off-screen overlap.
     final Map<UniqueKey, int> rowByKey = {};
     final List<int> rowLastOccupied = [];
-    for (final key in keys) {
-      final startIndex = startIndexByKey[key]!;
-      final endIndex = startIndex + spanByKey[key]! - 1;
+    for (final key in visibleKeys) {
+      final startIndex = startIndexByKey[key]!.clamp(
+        firstVisibleIndex,
+        lastVisibleIndex,
+      );
+      final endIndex = (startIndexByKey[key]! + spanByKey[key]! - 1).clamp(
+        firstVisibleIndex,
+        lastVisibleIndex,
+      );
       int r = 0;
       while (r < rowLastOccupied.length && rowLastOccupied[r] >= startIndex) {
         r++;
@@ -586,16 +618,9 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
 
     _reportSlotRow(0);
 
-    // Report total rows, including the reserved interactive-slot row.
-    final maxEventRow = rowByKey.values.isEmpty
-        ? -1
-        : rowByKey.values.reduce((a, b) => a > b ? a : b);
-    widget.maxRowsNotifier?.value =
-        (hasSlotSelection ? (maxEventRow > 0 ? maxEventRow : 0) : maxEventRow) +
-        1;
-
     final List<Widget> positioned = [];
-    for (final key in keys) {
+    var maxVisibleEventRow = -1;
+    for (final key in visibleKeys) {
       final event = eventByKey[key]!;
       final startIndex = startIndexByKey[key]!;
       final daysSpan = spanByKey[key]!;
@@ -655,6 +680,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
         isEndOffScreen = false;
       }
 
+      if (row > maxVisibleEventRow) maxVisibleEventRow = row;
       final double top = rowPadding + row * (eventHeight + rowPadding);
 
       positioned.add(
@@ -667,13 +693,17 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
             ignoring: widget.controller.slotSelectionNotifier.value != null,
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onLongPressStart: (_) {
+              onLongPressStart: (details) {
                 // Long-pressing an existing all-day event creates a new
                 // AllDaySlotSelection on the event's start day.  It always
                 // occupies row 0 (the top track); existing events are
                 // pushed down by the bar's auto-resize system.
                 final param = widget.fullDayParam.allDaySlotInteractionConfig;
-                final day = widget.getDayFromIndex(startIndex).withoutTime;
+                final pressedIndex =
+                    ((offset + left + details.localPosition.dx) /
+                            widget.dayWidth)
+                        .floor();
+                final day = widget.getDayFromIndex(pressedIndex).withoutTime;
                 final calSlot = CalendarSlot.allDayFromTap(
                   columnIndex: 0,
                   startDate: day,
@@ -701,6 +731,15 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
         ),
       );
     }
+
+    // The lookback window discovers multi-day events that began offscreen,
+    // while visible-only lane assignment keeps those rows compact. Report the
+    // compacted row count so the bar follows the same visible layout.
+    widget.maxRowsNotifier?.value = maxVisibleEventRow >= 0
+        ? maxVisibleEventRow + 1
+        : hasSlotSelection
+        ? 1
+        : 0;
 
     if (positioned.isEmpty) return const SizedBox.shrink();
     return Stack(clipBehavior: Clip.hardEdge, children: positioned);
