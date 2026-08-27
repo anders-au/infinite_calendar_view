@@ -283,8 +283,8 @@ class _SlotOverlayState extends State<SlotOverlay> {
             child: SegmentBody(
               accent: accent,
               borderRadius: widget.config.slotBorderRadius,
-              hideTopBorder: !isFirst,
-              hideBottomBorder: !isLast,
+              hideTopBorder: !isFirst || slot.continuesBefore,
+              hideBottomBorder: !isLast || slot.continuesAfter,
               isDragging: isDragging,
               padTop: isFirst ? zoneSize : 0,
               padBottom: isLast ? zoneSize : 0,

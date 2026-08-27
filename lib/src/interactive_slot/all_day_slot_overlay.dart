@@ -113,11 +113,45 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   SlotAutoScroller? _autoScroller;
   _AllDaySlotLayout? _lastInteractiveLayout;
   MouseCursor _effectiveCursor = SystemMouseCursors.basic;
+  ScrollController? _geometryScrollController;
 
   CalendarSlot? get _slot => widget.slotNotifier.value;
 
+  ScrollController? get _preferredGeometryScrollController =>
+      widget.mainContentScrollController ?? widget.headerScrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _attachGeometryScrollController();
+  }
+
+  @override
+  void didUpdateWidget(covariant AllDaySlotOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = _preferredGeometryScrollController;
+    if (identical(next, _geometryScrollController)) return;
+    _detachGeometryScrollController();
+    _attachGeometryScrollController();
+  }
+
+  void _attachGeometryScrollController() {
+    _geometryScrollController = _preferredGeometryScrollController;
+    _geometryScrollController?.addListener(_handleGeometryScroll);
+  }
+
+  void _detachGeometryScrollController() {
+    _geometryScrollController?.removeListener(_handleGeometryScroll);
+    _geometryScrollController = null;
+  }
+
+  void _handleGeometryScroll() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _detachGeometryScrollController();
     _autoScroller?.dispose();
     super.dispose();
   }
@@ -165,8 +199,9 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   /// scroll offset.  The rect uses sticky-left clamping (matching
   /// [MultiDayEventsOverlay]) so the start date always stays in view.
   _AllDaySlotLayout _computeLayout(CalendarSlot slot) {
-    final scrollOffset = widget.headerScrollController?.hasClients == true
-        ? widget.headerScrollController!.positions.first.pixels
+    final scrollController = _geometryScrollController;
+    final scrollOffset = scrollController?.hasClients == true
+        ? scrollController!.positions.first.pixels
         : 0.0;
 
     final startDay = slot.startDateTime.withoutTime;
@@ -283,8 +318,8 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
             config: widget.config,
             accentColor: accent,
             isDragging: _session != null,
-            hideLeftBorder: layout.isStartOffScreen,
-            hideRightBorder: layout.isEndOffScreen,
+            hideLeftBorder: layout.isStartOffScreen || slot.continuesBefore,
+            hideRightBorder: layout.isEndOffScreen || slot.continuesAfter,
             hideLeftHandle: !mountLeftHandleZone,
             hideRightHandle: !mountRightHandleZone,
           ),
@@ -422,8 +457,10 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
               config: widget.config,
               accentColor: accent,
               isDragging: _session != null,
-              hideLeftBorder: visualLayout.isStartOffScreen,
-              hideRightBorder: visualLayout.isEndOffScreen,
+              hideLeftBorder:
+                  visualLayout.isStartOffScreen || slot.continuesBefore,
+              hideRightBorder:
+                  visualLayout.isEndOffScreen || slot.continuesAfter,
               hideLeftHandle: !mountLeftHandleZone,
               hideRightHandle: !mountRightHandleZone,
             ),

@@ -43,4 +43,31 @@ void main() {
     expect(topResult.startDateTime, DateTime(2026, 7, 28, 9, 15));
     expect(bottomResult.endDateTime, DateTime(2026, 7, 28, 10, 30));
   });
+
+  test('resizing a projected edge materializes only that edge', () {
+    final projected = anchor.copyWith(
+      continuesBefore: true,
+      continuesAfter: true,
+    );
+
+    final topResult = projected.applyDelta(
+      const Offset(0, 15),
+      config: config,
+      mode: DragMode.extendStart,
+      dayWidth: 100,
+      heightPerMinute: 1,
+    );
+    final bottomResult = projected.applyDelta(
+      const Offset(0, 15),
+      config: config,
+      mode: DragMode.extendEnd,
+      dayWidth: 100,
+      heightPerMinute: 1,
+    );
+
+    expect(topResult.continuesBefore, isFalse);
+    expect(topResult.continuesAfter, isTrue);
+    expect(bottomResult.continuesBefore, isTrue);
+    expect(bottomResult.continuesAfter, isFalse);
+  });
 }

@@ -1530,6 +1530,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
           initialStartDate: slot.initialStartDate,
           startDateTime: clampedStart,
           duration: Duration(minutes: _session!.snapDurationMin),
+          continuesBefore: slot.continuesBefore,
+          continuesAfter: slot.continuesAfter,
         );
         widget.onChanged(resultSlot);
         return;
@@ -1553,6 +1555,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         initialStartDate: slot.initialStartDate,
         startDateTime: safeStart,
         duration: Duration(minutes: _session!.snapDurationMin),
+        continuesBefore: slot.continuesBefore,
+        continuesAfter: slot.continuesAfter,
       );
       widget.onChanged(resultSlot);
       return;
@@ -1569,6 +1573,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
       initialStartDate: slot.initialStartDate,
       startDateTime: newStart,
       duration: Duration(minutes: _session!.snapDurationMin),
+      continuesBefore: slot.continuesBefore,
+      continuesAfter: slot.continuesAfter,
     );
     widget.onChanged(resultSlot);
   }
@@ -1638,6 +1644,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         initialStartDate: slot.initialStartDate,
         startDateTime: newStart,
         duration: Duration(minutes: newDuration),
+        continuesBefore: false,
+        continuesAfter: slot.continuesAfter,
       );
       widget.onChanged(resultSlot);
     }
@@ -1707,6 +1715,8 @@ class InteractiveSlotState extends State<InteractiveSlot> with WidgetsBindingObs
         initialStartDate: slot.initialStartDate,
         startDateTime: _session!.snapStartDate,
         duration: Duration(minutes: newDuration),
+        continuesBefore: slot.continuesBefore,
+        continuesAfter: false,
       );
       widget.onChanged(resultSlot);
     }

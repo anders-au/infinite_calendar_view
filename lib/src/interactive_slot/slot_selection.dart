@@ -46,12 +46,20 @@ class CalendarSlot {
   /// instead of a vertical block in the time grid.
   final bool isAllDay;
 
+  /// Whether the finite start is only a projection of an unbounded interval.
+  final bool continuesBefore;
+
+  /// Whether the finite end is only a projection of an unbounded interval.
+  final bool continuesAfter;
+
   CalendarSlot({
     required this.columnIndex,
     required this.initialStartDate,
     required this.startDateTime,
     required this.duration,
     this.isAllDay = false,
+    this.continuesBefore = false,
+    this.continuesAfter = false,
   }) : assert(!duration.isNegative, 'duration must not be negative');
 
   // ── factories ────────────────────────────────────────────────────────
@@ -158,6 +166,8 @@ class CalendarSlot {
       startDateTime: startDateTime.withoutTime,
       duration: Duration(days: days),
       isAllDay: true,
+      continuesBefore: continuesBefore,
+      continuesAfter: continuesAfter,
     );
   }
 
@@ -174,6 +184,8 @@ class CalendarSlot {
       startDateTime: startDateTime,
       duration: duration,
       isAllDay: false,
+      continuesBefore: continuesBefore,
+      continuesAfter: continuesAfter,
     );
   }
 
@@ -206,9 +218,7 @@ class CalendarSlot {
       case DragMode.shift:
         final newStart = _snapDateTime(
           startDateTime.add(
-            Duration(
-              minutes: dayShift + rawMinuteDelta.round(),
-            ),
+            Duration(minutes: dayShift + rawMinuteDelta.round()),
           ),
           config.stepMinutes,
         );
@@ -218,9 +228,7 @@ class CalendarSlot {
       case DragMode.extendStart:
         final newStart = _snapDateTime(
           startDateTime.add(
-            Duration(
-              minutes: dayShift + rawMinuteDelta.round(),
-            ),
+            Duration(minutes: dayShift + rawMinuteDelta.round()),
           ),
           config.stepMinutes,
         );
@@ -238,11 +246,7 @@ class CalendarSlot {
 
       case DragMode.extendEnd:
         final newEnd = _snapDateTime(
-          endDateTime.add(
-            Duration(
-              minutes: dayShift + rawMinuteDelta.round(),
-            ),
-          ),
+          endDateTime.add(Duration(minutes: dayShift + rawMinuteDelta.round())),
           config.stepMinutes,
         );
         final newDur = newEnd.difference(startDateTime);
@@ -269,7 +273,11 @@ class CalendarSlot {
       );
     }
 
-    return result;
+    return switch (mode) {
+      DragMode.extendStart => result.copyWith(continuesBefore: false),
+      DragMode.extendEnd => result.copyWith(continuesAfter: false),
+      DragMode.shift => result,
+    };
   }
 
   // ── copyWith ─────────────────────────────────────────────────────────
@@ -280,6 +288,8 @@ class CalendarSlot {
     DateTime? startDateTime,
     Duration? duration,
     bool? isAllDay,
+    bool? continuesBefore,
+    bool? continuesAfter,
   }) {
     return CalendarSlot(
       columnIndex: columnIndex ?? this.columnIndex,
@@ -287,6 +297,8 @@ class CalendarSlot {
       startDateTime: startDateTime ?? this.startDateTime,
       duration: duration ?? this.duration,
       isAllDay: isAllDay ?? this.isAllDay,
+      continuesBefore: continuesBefore ?? this.continuesBefore,
+      continuesAfter: continuesAfter ?? this.continuesAfter,
     );
   }
 
@@ -300,6 +312,8 @@ class CalendarSlot {
       startDateTime: newStart,
       duration: duration,
       isAllDay: isAllDay,
+      continuesBefore: continuesBefore,
+      continuesAfter: continuesAfter,
     );
   }
 
@@ -311,6 +325,8 @@ class CalendarSlot {
       startDateTime: startDateTime,
       duration: newDuration,
       isAllDay: isAllDay,
+      continuesBefore: continuesBefore,
+      continuesAfter: continuesAfter,
     );
   }
 
@@ -334,6 +350,8 @@ class CalendarSlot {
       startDateTime: newStart,
       duration: newEnd.difference(newStart),
       isAllDay: isAllDay,
+      continuesBefore: continuesBefore,
+      continuesAfter: continuesAfter,
     );
   }
 
@@ -361,7 +379,9 @@ class CalendarSlot {
       initialStartDate == other.initialStartDate &&
       startDateTime == other.startDateTime &&
       duration == other.duration &&
-      isAllDay == other.isAllDay;
+      isAllDay == other.isAllDay &&
+      continuesBefore == other.continuesBefore &&
+      continuesAfter == other.continuesAfter;
 
   @override
   int get hashCode => Object.hash(
@@ -370,13 +390,16 @@ class CalendarSlot {
     startDateTime,
     duration,
     isAllDay,
+    continuesBefore,
+    continuesAfter,
   );
 
   @override
   String toString() =>
       'CalendarSlot(column: $columnIndex, '
       'start: $startDateTime, dur: $duration, '
-      'allDay: $isAllDay, days: $totalDaysSpanned)';
+      'allDay: $isAllDay, before: $continuesBefore, '
+      'after: $continuesAfter, days: $totalDaysSpanned)';
 }
 
 /// Drag interaction modes for the slot.

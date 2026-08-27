@@ -209,6 +209,8 @@ class _SingleDayBody extends StatelessWidget {
       accent: accent,
       borderRadius: borderRadius,
       isDragging: isDragging,
+      hideTopBorder: slot.continuesBefore,
+      hideBottomBorder: slot.continuesAfter,
       child: child,
     );
   }
@@ -367,6 +369,8 @@ class _MultiDayBody extends StatelessWidget {
       accent: accent,
       borderRadius: borderRadius,
       isDragging: isDragging,
+      hideTopBorder: slot.continuesBefore,
+      hideBottomBorder: slot.continuesAfter,
     );
   }
 }

@@ -66,6 +66,79 @@ void main() {
     eventsController.dispose();
   });
 
+  testWidgets('all-day slot geometry follows horizontal scroll continuously', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final slotNotifier = ValueNotifier<CalendarSlot?>(
+      CalendarSlot(
+        columnIndex: 0,
+        initialStartDate: DateTime(2026, 7, 1),
+        startDateTime: DateTime(2026, 7, 1),
+        duration: const Duration(days: 5),
+        isAllDay: true,
+        continuesBefore: true,
+        continuesAfter: true,
+      ),
+    );
+    final rowNotifier = ValueNotifier<int?>(0);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 80,
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  controller: scrollController,
+                  scrollDirection: Axis.horizontal,
+                  child: const SizedBox(width: 1000, height: 1),
+                ),
+                AllDaySlotOverlay(
+                  slotNotifier: slotNotifier,
+                  config: const SlotInteractionConfig(),
+                  dayWidth: 100,
+                  eventHeight: 40,
+                  cellGapWidthPadding: 0,
+                  eventEndGap: 0,
+                  columnPositions: const [0, 100],
+                  initialDate: DateTime(2026, 7, 1),
+                  mainContentScrollController: scrollController,
+                  viewportWidth: 300,
+                  rowNotifier: rowNotifier,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    double shiftWidth() => tester
+        .widget<Positioned>(
+          find.byKey(const ValueKey('allDaySlot.shift.positioned')),
+        )
+        .width!;
+
+    final initialWidth = shiftWidth();
+    scrollController.jumpTo(25);
+    await tester.pump();
+    final partialWidth = shiftWidth();
+    scrollController.jumpTo(50);
+    await tester.pump();
+    final laterWidth = shiftWidth();
+
+    expect(partialWidth, isNot(initialWidth));
+    expect(laterWidth, lessThan(partialWidth));
+
+    rowNotifier.dispose();
+    slotNotifier.dispose();
+    scrollController.dispose();
+  });
+
   testWidgets('long press on multi-day event selects the pressed day', (
     tester,
   ) async {
