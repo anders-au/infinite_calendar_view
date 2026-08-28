@@ -9,3 +9,10 @@ analyzer:
     - idea/**
     - .dart_tool/**
     - example/.dart_tool/**
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**

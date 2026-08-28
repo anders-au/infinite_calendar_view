@@ -1,6 +1,5 @@
 import 'dart:ui';
 
-import 'package:android_gesture_exclusion/android_gesture_exclusion.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -781,8 +780,8 @@ class EventsPlannerState extends State<EventsPlanner>
 
           // full day events
           if (widget.fullDayParam.fullDayEventsBarVisibility)
-            AndroidGestureExclusionContainer(
-              child: getHorizontalFullDayEventsWidget(
+            _wrapFullDayEvents(
+              getHorizontalFullDayEventsWidget(
                 cellGapWidthPadding,
                 todayColor,
               ),
@@ -1164,6 +1163,13 @@ class EventsPlannerState extends State<EventsPlanner>
         floatingIndicatorTopInset: widget.dayParam.dayTopPadding,
       ),
     );
+  }
+
+  /// Applies [FullDayParam.fullDayEventsWrapper] to the full-day events
+  /// header, if one is configured.
+  Widget _wrapFullDayEvents(Widget child) {
+    final wrapper = widget.fullDayParam.fullDayEventsWrapper;
+    return wrapper != null ? wrapper(child) : child;
   }
 
   HorizontalFullDayEventsWidget getHorizontalFullDayEventsWidget(
@@ -1640,6 +1646,7 @@ class FullDayParam {
     ),
     this.fullDayEventsBuilder,
     this.fullDayEventBuilder,
+    this.fullDayEventsWrapper,
     this.includeEventInAllDayLayout,
     this.allDayEventLayoutId,
     this.canShareAllDaySlotRow,
@@ -1677,6 +1684,9 @@ class FullDayParam {
 
   /// full day event builder
   final Widget Function(Event event, double width)? fullDayEventBuilder;
+
+  /// Wraps the full-day events header in an optional custom widget.
+  final Widget Function(Widget child)? fullDayEventsWrapper;
 
   /// Whether an event should reserve a row in the planner's all-day layout.
   ///
