@@ -187,7 +187,9 @@ class DayWidget extends StatelessWidget {
                   var column = startColumnIndex;
                   column < endColumnIndex;
                   column++
-                )
+                ) ...[
+                  if (column > startColumnIndex)
+                    SizedBox(width: columnsParam.columnGapWidth),
                   Container(
                     width: columnsParam.getColumSize(width, column),
                     height: plannerHeight,
@@ -211,6 +213,7 @@ class DayWidget extends StatelessWidget {
                           ),
                     ),
                   ),
+                ],
               ],
             ),
 
@@ -223,7 +226,9 @@ class DayWidget extends StatelessWidget {
                     var column = startColumnIndex;
                     column < endColumnIndex;
                     column++
-                  )
+                  ) ...[
+                    if (column > startColumnIndex)
+                      SizedBox(width: columnsParam.columnGapWidth),
                     SizedBox(
                       width: columnsParam.getColumSize(width, column),
                       height: plannerHeight,
@@ -248,6 +253,7 @@ class DayWidget extends StatelessWidget {
                             ),
                       ),
                     ),
+                  ],
                 ],
               ),
 
@@ -300,7 +306,9 @@ class DayWidget extends StatelessWidget {
                   var column = startColumnIndex;
                   column < endColumnIndex;
                   column++
-                )
+                ) ...[
+                  if (column > startColumnIndex)
+                    SizedBox(width: columnsParam.columnGapWidth),
                   EventsListWidget(
                     // rebuild when column index change
                     key: ValueKey(column),
@@ -317,6 +325,7 @@ class DayWidget extends StatelessWidget {
                     dayParam: dayParam,
                     showMultiDayEvents: showMultiDayEvents,
                   ),
+                ],
               ],
             ),
 

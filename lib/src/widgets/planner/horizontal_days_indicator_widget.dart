@@ -39,8 +39,9 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // take appbar background color first
-    var defaultHeaderBackgroundColor =
-        Theme.of(context).appBarTheme.backgroundColor;
+    var defaultHeaderBackgroundColor = Theme.of(
+      context,
+    ).appBarTheme.backgroundColor;
 
     return Container(
       constraints: BoxConstraints(minHeight: daysHeaderParam.daysHeaderHeight),
@@ -81,14 +82,21 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
                           children: [
                             if (daysHeaderParam.daysHeaderVisibility)
                               daysHeaderParam.dayHeaderBuilder != null
-                                  ? daysHeaderParam.dayHeaderBuilder!
-                                      .call(day, isToday)
+                                  ? daysHeaderParam.dayHeaderBuilder!.call(
+                                      day,
+                                      isToday,
+                                    )
                                   : getDefaultDayHeader(day, isToday),
                             if (columnsParam.columns > 1 ||
                                 columnsParam.columnHeaderBuilder != null ||
                                 columnsParam.columnsLabels.isNotEmpty)
-                              getColumnsHeader(context, startColumnIndex,
-                                  onColumnIndexChanged, day, isToday)
+                              getColumnsHeader(
+                                context,
+                                startColumnIndex,
+                                onColumnIndexChanged,
+                                day,
+                                isToday,
+                              ),
                           ],
                         ),
                       );
@@ -97,20 +105,22 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
                 },
               ),
             ),
-          )
+          ),
         ],
       ),
     );
   }
 
   DateTime getDayFromIndex(int index) {
-    return initialDate
-        .addCalendarDays(textDirection == TextDirection.ltr ? index : -index);
+    return initialDate.addCalendarDays(
+      textDirection == TextDirection.ltr ? index : -index,
+    );
   }
 
   DefaultDayHeader getDefaultDayHeader(DateTime day, bool isToday) {
     return DefaultDayHeader(
-      dayText: daysHeaderParam.dayHeaderTextBuilder?.call(day) ??
+      dayText:
+          daysHeaderParam.dayHeaderTextBuilder?.call(day) ??
           "${day.day}/${day.month}",
       isToday: isToday,
       foregroundColor: daysHeaderParam.daysHeaderForegroundColor,
@@ -128,10 +138,11 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
     var bgColor = colorScheme.surface;
     var builder = columnsParam.columnHeaderBuilder;
     var endColumnIndex = min(
-        columnsParam.maxColumns != null
-            ? startColumnIndex + columnsParam.maxColumns!
-            : columnsParam.columns,
-        columnsParam.columns);
+      columnsParam.maxColumns != null
+          ? startColumnIndex + columnsParam.maxColumns!
+          : columnsParam.columns,
+      columnsParam.columns,
+    );
     return Stack(
       children: [
         // left previous columns icons
@@ -139,15 +150,18 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
           Positioned(
             left: 0,
             child: IconButton(
-              icon: columnsParam.previousColumnsIcon ??
+              icon:
+                  columnsParam.previousColumnsIcon ??
                   Icon(
                     Icons.arrow_back_ios_rounded,
                     size: 20,
                     color: Theme.of(context).colorScheme.onSurface,
                   ),
               onPressed: () {
-                var newStartColumnIndex =
-                    max(0, startColumnIndex - columnsParam.maxColumns!);
+                var newStartColumnIndex = max(
+                  0,
+                  startColumnIndex - columnsParam.maxColumns!,
+                );
                 onColumnIndexChanged.call(newStartColumnIndex);
               },
             ),
@@ -159,7 +173,8 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
           Positioned(
             right: 0,
             child: IconButton(
-              icon: columnsParam.nextColumnsIcon ??
+              icon:
+                  columnsParam.nextColumnsIcon ??
                   Icon(
                     Icons.arrow_forward_ios_rounded,
                     size: 20,
@@ -178,12 +193,20 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
         // columns
         Row(
           children: [
-            for (var column = startColumnIndex;
-                column < endColumnIndex;
-                column++)
+            for (
+              var column = startColumnIndex;
+              column < endColumnIndex;
+              column++
+            ) ...[
+              if (column > startColumnIndex)
+                SizedBox(width: columnsParam.columnGapWidth),
               if (builder != null)
-                builder.call(day, isToday, column,
-                    columnsParam.getColumSize(dayWidth, column))
+                builder.call(
+                  day,
+                  isToday,
+                  column,
+                  columnsParam.getColumSize(dayWidth, column),
+                )
               else
                 DefaultColumnHeader(
                   columnText: columnsParam.columnsLabels[column],
@@ -193,8 +216,9 @@ class HorizontalDaysIndicatorWidget extends StatelessWidget {
                       : bgColor,
                   foregroundColor:
                       columnsParam.columnsForegroundColors?[column] ??
-                          colorScheme.primary,
-                )
+                      colorScheme.primary,
+                ),
+            ],
           ],
         ),
       ],
@@ -289,8 +313,10 @@ class DefaultDayHeader extends StatelessWidget {
                 borderRadius: const BorderRadius.all(Radius.circular(10)),
               ),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 2,
+                ),
                 child: Text(
                   dayText,
                   textAlign: TextAlign.center,
@@ -307,11 +333,7 @@ class DefaultDayHeader extends StatelessWidget {
   }
 
   TextStyle getDefaultStyle(Color fgColor) {
-    return TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.w500,
-      color: fgColor,
-    );
+    return TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: fgColor);
   }
 }
 
@@ -357,8 +379,9 @@ class TopLeftCellState extends State<TopLeftCell> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      child: widget.topLeftCellBuilder
-          ?.call(widget.topLeftCellValueNotifier.value),
+      child: widget.topLeftCellBuilder?.call(
+        widget.topLeftCellValueNotifier.value,
+      ),
     );
   }
 }

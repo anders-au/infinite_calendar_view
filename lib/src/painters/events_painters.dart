@@ -493,19 +493,14 @@ class ColumnPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    var columnsTotalWidth = 0.0;
     final paint = Paint()..color = lineColor;
-    for (var i = 0; i <= columnsParam.columns; i++) {
+    for (var i = 1; i < columnsParam.columns; i++) {
+      final columnStart = columnsParam.getColumPositions(width, i).first;
       canvas.drawLine(
-        Offset(columnsTotalWidth, 0),
-        Offset(columnsTotalWidth, size.height),
+        Offset(columnStart - (columnsParam.columnGapWidth / 2), 0),
+        Offset(columnStart - (columnsParam.columnGapWidth / 2), size.height),
         paint,
       );
-
-      if (i != columnsParam.columns) {
-        var columnWidth = columnsParam.getColumSize(width, i);
-        columnsTotalWidth += columnWidth;
-      }
     }
   }
 

@@ -781,10 +781,7 @@ class EventsPlannerState extends State<EventsPlanner>
           // full day events
           if (widget.fullDayParam.fullDayEventsBarVisibility)
             _wrapFullDayEvents(
-              getHorizontalFullDayEventsWidget(
-                cellGapWidthPadding,
-                todayColor,
-              ),
+              getHorizontalFullDayEventsWidget(cellGapWidthPadding, todayColor),
             ),
         ];
 
@@ -1914,6 +1911,7 @@ class ColumnsParam {
     this.columnsColors = const [],
     this.columnsForegroundColors,
     this.columnsWidthRatio,
+    this.columnGapWidth = 0,
     this.columnHeaderBuilder,
     this.columnCustomPainter,
     this.previousColumnsIcon,
@@ -1937,6 +1935,9 @@ class ColumnsParam {
   /// ratio of dayWidth of each column
   final List<double>? columnsWidthRatio;
 
+  /// Horizontal gap between adjacent columns within a day.
+  final double columnGapWidth;
+
   /// left icon to change displayed columns
   final Icon? previousColumnsIcon;
 
@@ -1957,9 +1958,11 @@ class ColumnsParam {
 
   double getColumSize(double dayWidth, int columnIndex) {
     var columnWidthRatio = columnsWidthRatio?[columnIndex];
+    final availableWidth =
+        dayWidth - (columnGapWidth * (columns > 1 ? columns - 1 : 0));
     return columnWidthRatio != null
-        ? dayWidth * columnWidthRatio
-        : dayWidth / columns;
+        ? availableWidth * columnWidthRatio
+        : availableWidth / columns;
   }
 
   /// return column position in day width
@@ -1968,7 +1971,7 @@ class ColumnsParam {
   List<double> getColumPositions(double dayWidth, int columnIndex) {
     var startSize = 0.0;
     for (var column = 0; column < columnIndex; column++) {
-      startSize += getColumSize(dayWidth, column);
+      startSize += getColumSize(dayWidth, column) + columnGapWidth;
     }
     return [startSize, startSize + getColumSize(dayWidth, columnIndex)];
   }
@@ -1980,7 +1983,7 @@ class ColumnsParam {
       if (totalWidth <= dx && dx < totalWidth + columnSize) {
         return column;
       }
-      totalWidth += columnSize;
+      totalWidth += columnSize + columnGapWidth;
     }
     return columns - 1;
   }
