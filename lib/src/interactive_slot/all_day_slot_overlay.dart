@@ -59,7 +59,10 @@ class AllDaySlotOverlay extends StatefulWidget {
   /// Gap subtracted from the right edge (matching [FullDayParam.eventEndGap]).
   final double eventEndGap;
 
-  /// Per-column positions `[startOffset, endOffset]` within the padded day.
+  /// Legacy per-column positions retained for API compatibility.
+  ///
+  /// All-day slots span the complete day, matching full-day event layout, so
+  /// these positions are intentionally not used for all-day geometry.
   final List<double> columnPositions;
 
   /// The planner's initial date (used for day-index calculations).
@@ -211,13 +214,13 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final contentX = startIndex * widget.dayWidth;
     final viewportX = contentX - scrollOffset;
 
-    final colWidth = widget.columnPositions[1] - widget.columnPositions[0];
     final daysSpan = slot.totalDaysSpanned;
 
-    final naturalLeft =
-        viewportX + widget.cellGapWidthPadding + widget.columnPositions[0];
+    final naturalLeft = viewportX + widget.cellGapWidthPadding;
     final naturalWidth =
-        (daysSpan - 1) * widget.dayWidth + colWidth - widget.eventEndGap;
+        daysSpan * widget.dayWidth -
+        widget.cellGapWidthPadding * 2 -
+        widget.eventEndGap;
     final effectiveViewportWidth =
         widget.viewportWidth ?? _stackWidthFromContext(context);
 

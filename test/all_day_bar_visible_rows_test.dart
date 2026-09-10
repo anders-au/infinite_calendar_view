@@ -139,6 +139,61 @@ void main() {
     scrollController.dispose();
   });
 
+  testWidgets('all-day slot spans the full day across calendar columns', (
+    tester,
+  ) async {
+    final slotNotifier = ValueNotifier<CalendarSlot?>(
+      CalendarSlot(
+        columnIndex: 0,
+        initialStartDate: DateTime(2026, 7, 1),
+        startDateTime: DateTime(2026, 7, 1),
+        duration: const Duration(days: 1),
+        isAllDay: true,
+      ),
+    );
+    final rowNotifier = ValueNotifier<int?>(0);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 80,
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: const SizedBox(width: 1000, height: 1),
+                ),
+                AllDaySlotOverlay(
+                  slotNotifier: slotNotifier,
+                  config: const SlotInteractionConfig(enableResize: false),
+                  dayWidth: 100,
+                  eventHeight: 40,
+                  cellGapWidthPadding: 0,
+                  eventEndGap: 0,
+                  columnPositions: const [0, 50],
+                  initialDate: DateTime(2026, 7, 1),
+                  viewportWidth: 300,
+                  rowNotifier: rowNotifier,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final shift = tester.widget<Positioned>(
+      find.byKey(const ValueKey('allDaySlot.shift.positioned')),
+    );
+    expect(shift.width, 100);
+
+    rowNotifier.dispose();
+    slotNotifier.dispose();
+  });
+
   testWidgets('long press on multi-day event selects the pressed day', (
     tester,
   ) async {
