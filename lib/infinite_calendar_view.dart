@@ -7,6 +7,8 @@ export './src/controller/events_list_view_controller.dart';
 export './src/controller/months_view_controller.dart';
 export './src/controller/planner_view_controller.dart';
 export './src/events/event.dart';
+export './src/calendar_day_span_geometry.dart';
+export './src/calendar_presentation_policy.dart';
 export './src/events/event_arranger.dart';
 export './src/events/side_events_arranger.dart';
 export './src/events/simple_events_arranger.dart';

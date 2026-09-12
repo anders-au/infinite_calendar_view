@@ -40,7 +40,7 @@ class VerticalTimeIndicatorWidget extends StatelessWidget {
     final slot = interactiveSlot;
     final slotIndicatorEntries =
         slot == null ||
-            slot.isAllDay ||
+            slot.rendersInFullDayRegion ||
             !slotInteractionConfig.showTimeIndicators
         ? const <SlotTimeIndicator>[]
         : _slotTimeIndicators(slot);

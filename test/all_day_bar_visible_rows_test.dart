@@ -66,6 +66,63 @@ void main() {
     eventsController.dispose();
   });
 
+  testWidgets('long timed events use the shared partial-day geometry', (
+    tester,
+  ) async {
+    final eventsController = EventsController();
+    final scrollController = ScrollController();
+    final maxRows = ValueNotifier<int>(0);
+    final initialDate = DateTime(2026, 7, 1);
+    final event = Event(
+      startTime: DateTime(2026, 7, 1, 6),
+      endTime: DateTime(2026, 7, 3, 12),
+      title: 'Long timed event',
+    );
+
+    eventsController.updateCalendarData((data) => data.addEvents([event]));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 400,
+            height: 80,
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  controller: scrollController,
+                  scrollDirection: Axis.horizontal,
+                  child: const SizedBox(width: 1000, height: 1),
+                ),
+                MultiDayEventsOverlay(
+                  controller: eventsController,
+                  scrollController: scrollController,
+                  fullDayParam: const FullDayParam(),
+                  dayWidth: 100,
+                  cellGapWidthPadding: 0,
+                  getDayFromIndex: (index) =>
+                      initialDate.add(Duration(days: index)),
+                  maxRowsNotifier: maxRows,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final positioned = tester.widget<Positioned>(
+      find.byKey(ValueKey('fullDayEvent.${event.uniqueId}')),
+    );
+    expect(positioned.left, closeTo(25, 0.001));
+    expect(positioned.width, closeTo(225, 0.001));
+
+    maxRows.dispose();
+    scrollController.dispose();
+    eventsController.dispose();
+  });
+
   testWidgets('all-day slot geometry follows horizontal scroll continuously', (
     tester,
   ) async {
@@ -189,6 +246,58 @@ void main() {
       find.byKey(const ValueKey('allDaySlot.shift.positioned')),
     );
     expect(shift.width, 100);
+
+    rowNotifier.dispose();
+    slotNotifier.dispose();
+  });
+
+  testWidgets('partial all-day slot uses start and end day insets', (
+    tester,
+  ) async {
+    final slotNotifier = ValueNotifier<CalendarSlot?>(
+      CalendarSlot(
+        columnIndex: 0,
+        initialStartDate: DateTime(2026, 7, 1, 6),
+        startDateTime: DateTime(2026, 7, 1, 6),
+        duration: const Duration(days: 2, hours: 6),
+        isAllDay: false,
+      ),
+    );
+    final rowNotifier = ValueNotifier<int?>(0);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 400,
+            height: 80,
+            child: Stack(
+              children: [
+                AllDaySlotOverlay(
+                  slotNotifier: slotNotifier,
+                  config: const SlotInteractionConfig(enableResize: false),
+                  dayWidth: 100,
+                  eventHeight: 40,
+                  cellGapWidthPadding: 0,
+                  eventEndGap: 0,
+                  columnPositions: const [0, 100],
+                  initialDate: DateTime(2026, 7, 1),
+                  viewportWidth: 400,
+                  rowNotifier: rowNotifier,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final shift = tester.widget<Positioned>(
+      find.byKey(const ValueKey('allDaySlot.shift.positioned')),
+    );
+    expect(shift.left, closeTo(25, 0.001));
+    expect(shift.width, closeTo(225, 0.001));
 
     rowNotifier.dispose();
     slotNotifier.dispose();

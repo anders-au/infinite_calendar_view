@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../utils/extension.dart';
+import '../calendar_presentation_policy.dart';
 
 const String defaultType = "default";
 
@@ -72,6 +73,21 @@ class Event {
   DateTime? effectiveEndTime;
 
   bool get isMultiDay => daysIndex != null;
+
+  /// Whether this event should be placed in the full-day region.
+  ///
+  /// Timed events longer than 24 hours are represented in the full-day region
+  /// while retaining their original timestamps for partial-day insets.
+  bool get rendersInFullDayRegion {
+    if (endTime == null) return isFullDay;
+    final start = effectiveStartTime ?? startTime;
+    final end = effectiveEndTime ?? endTime!;
+    return CalendarPresentationPolicy.rendersInFullDayRegion(
+      start: start,
+      end: end,
+      sourceIsAllDay: isFullDay,
+    );
+  }
 
   bool get isSingleMidnightCrossingTimedEvent {
     if (isFullDay) return false;

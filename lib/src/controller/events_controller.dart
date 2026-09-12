@@ -25,12 +25,15 @@ class EventsController extends ChangeNotifier {
   /// Holds a [CalendarSlot] (created by tapping a time slot in the day
   /// grid or the all-day bar).  Set to null to dismiss the selection.
   ///
-  /// Check [CalendarSlot.isAllDay] to distinguish timed vs all-day:
+  /// Check [CalendarSlot.isAllDay] for the source schedule semantics. The
+  /// package derives the presentation lane from [CalendarSlot
+  /// .rendersInFullDayRegion], so long timed slots remain timed data while
+  /// rendering in the all-day region:
   /// ```dart
   /// final s = controller.slotSelectionNotifier.value;
   /// if (s == null) return;
-  /// if (s.isAllDay) { /* all-day slot */ }
-  /// else           { /* timed slot */ }
+  /// if (s.rendersInFullDayRegion) { /* all-day presentation lane */ }
+  /// else                         { /* timed presentation lane */ }
   /// ```
   final slotSelectionNotifier = ValueNotifier<CalendarSlot?>(null);
 
@@ -62,7 +65,7 @@ class EventsController extends ChangeNotifier {
     var dayEvents = calendarData.dayEvents[date.withoutTime];
     var dayEventsByType = dayEvents
         ?.where(
-          (e) => e.isFullDay
+          (e) => e.rendersInFullDayRegion
               ? (e.isMultiDay ? returnMultiFullDayEvents : returnFullDayEvent)
               : (e.isMultiDay ? returnMultiDayEvents : returnDayEvents),
         )
@@ -89,7 +92,7 @@ class EventsController extends ChangeNotifier {
     final right = b.event;
 
     // For month bars (full-day/multi-day), keep source list priority.
-    if (left.isFullDay && right.isFullDay) {
+    if (left.rendersInFullDayRegion && right.rendersInFullDayRegion) {
       return a.index.compareTo(b.index);
     }
 
@@ -123,12 +126,15 @@ class CalendarData {
   /// add all events and cuts up appointments if they are over several days
   void addEvents(List<Event> events) {
     for (var event in events) {
+      final rendersInFullDayRegion = event.rendersInFullDayRegion;
       var days =
           event.endTime?.withoutTime
               .difference(event.startTime.withoutTime)
               .inDays ??
           0;
-      if (!event.isFullDay && days > 0 && event.endTime?.totalMinutes == 0) {
+      if (days > 0 &&
+          event.endTime?.totalMinutes == 0 &&
+          (!event.isFullDay || rendersInFullDayRegion)) {
         days -= 1;
       }
 
@@ -136,7 +142,7 @@ class CalendarData {
       for (int i = 0; i <= days; i++) {
         var day = event.startTime.withoutTime.addCalendarDays(i);
         var startTime = i == 0 ? event.startTime : day;
-        var endTime = (i == days && !event.isFullDay)
+        var endTime = (i == days && !rendersInFullDayRegion)
             ? event.endTime
             : day.addCalendarDays(1).add(Duration(milliseconds: -1));
         var newEvents = event.copyWith(

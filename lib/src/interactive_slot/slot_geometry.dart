@@ -78,19 +78,19 @@ class SlotGeometry {
     required double plannerHeight,
     int? startDayIndex,
   }) {
-    if (slot.isAllDay) {
+    if (slot.rendersInFullDayRegion) {
       // All-day slots are positioned by the all-day bar overlay, not here.
       return Rect.zero;
     }
 
-    final startDayDiff = startDayIndex ??
+    final startDayDiff =
+        startDayIndex ??
         _dayDiffFromInitial(slot.startDateTime); // overridden by caller
     final viewportX = startDayDiff * dayWidth - scrollOffset;
     final left = viewportX + cellGapWidthPadding + columnPositions[0];
 
     final startMinute = slot.startDateTime.totalMinutes.toDouble();
-    final endMinute =
-        (startMinute + slot.durationInMinutes).toDouble();
+    final endMinute = (startMinute + slot.durationInMinutes).toDouble();
 
     final top = minuteToY(startMinute) + dayTopPadding;
     double bottom = minuteToY(endMinute) + dayTopPadding;
@@ -116,11 +116,12 @@ class SlotGeometry {
     required double plannerHeight,
     required int startDayIndex,
   }) {
-    if (slot.isAllDay) return Rect.zero;
+    if (slot.rendersInFullDayRegion) return Rect.zero;
 
     final viewportX = startDayIndex * dayWidth - scrollOffset;
     final left = viewportX + cellGapWidthPadding + columnPositions[0];
-    final width = (slot.totalDaysSpanned - 1) * dayWidth +
+    final width =
+        (slot.totalDaysSpanned - 1) * dayWidth +
         (columnPositions[1] - columnPositions[0]);
     final top = dayTopPadding;
     final height = plannerHeight - dayTopPadding; // bottom padding excluded
@@ -181,12 +182,16 @@ class SlotGeometry {
     final zoneSize = config.handleZoneSize;
 
     // When zones overlap (very short slot), pick the closest edge.
-    if (config.enableResize && config.enableResizeStart && distToTop <= zoneSize) {
+    if (config.enableResize &&
+        config.enableResizeStart &&
+        distToTop <= zoneSize) {
       if (!config.enableResizeEnd || distToTop <= distToBottom) {
         return DragMode.extendStart;
       }
     }
-    if (config.enableResize && config.enableResizeEnd && distToBottom <= zoneSize) {
+    if (config.enableResize &&
+        config.enableResizeEnd &&
+        distToBottom <= zoneSize) {
       return DragMode.extendEnd;
     }
     if (config.enableShift) {

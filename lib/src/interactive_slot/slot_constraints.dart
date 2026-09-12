@@ -47,7 +47,7 @@ class SlotConstraints {
     CalendarSlot anchor,
     SlotInteractionConfig config,
   ) {
-    if (proposed.isAllDay) {
+    if (proposed.rendersInFullDayRegion) {
       // All-day slots can shift freely across days — no time clamping.
       return proposed;
     }
@@ -57,11 +57,13 @@ class SlotConstraints {
     var newEnd = proposed.endDateTime;
 
     if (debugSlotDrag) {
-      debugPrint('[SlotConstraints] _clampShift IN  '
-          'proposedStart=${proposed.startDateTime.toIso8601String()}  '
-          'proposedEnd=${proposed.endDateTime.toIso8601String()}  '
-          'anchorDur=${dur}min  '
-          'maxDurationMinutes=${config.maxDurationMinutes}');
+      debugPrint(
+        '[SlotConstraints] _clampShift IN  '
+        'proposedStart=${proposed.startDateTime.toIso8601String()}  '
+        'proposedEnd=${proposed.endDateTime.toIso8601String()}  '
+        'anchorDur=${dur}min  '
+        'maxDurationMinutes=${config.maxDurationMinutes}',
+      );
     }
 
     // Clamp start to not go before 00:00 of its calendar day.
@@ -69,7 +71,10 @@ class SlotConstraints {
     if (newStart.isBefore(earliestStart)) {
       newStart = earliestStart;
       newEnd = newStart.add(Duration(minutes: dur));
-      if (debugSlotDrag) debugPrint('[SlotConstraints] _clampShift clamped start to $earliestStart');
+      if (debugSlotDrag)
+        debugPrint(
+          '[SlotConstraints] _clampShift clamped start to $earliestStart',
+        );
     }
 
     // Clamp end to not exceed the allowed column span.
@@ -77,7 +82,8 @@ class SlotConstraints {
     if (newEnd.isAfter(latestEnd)) {
       newEnd = latestEnd;
       newStart = newEnd.subtract(Duration(minutes: dur));
-      if (debugSlotDrag) debugPrint('[SlotConstraints] _clampShift clamped end to $latestEnd');
+      if (debugSlotDrag)
+        debugPrint('[SlotConstraints] _clampShift clamped end to $latestEnd');
     }
 
     // Safety: ensure duration is always preserved.
@@ -89,15 +95,20 @@ class SlotConstraints {
         newEnd = latest;
         newStart = newEnd.subtract(Duration(minutes: dur));
       }
-      if (debugSlotDrag) debugPrint('[SlotConstraints] _clampShift SAFETY reset to start=$newStart end=$newEnd');
+      if (debugSlotDrag)
+        debugPrint(
+          '[SlotConstraints] _clampShift SAFETY reset to start=$newStart end=$newEnd',
+        );
     }
 
     if (debugSlotDrag) {
-      debugPrint('[SlotConstraints] _clampShift OUT '
-          'start=${newStart.toIso8601String()}  '
-          'end=${newEnd.toIso8601String()}  '
-          'dur=${newEnd.difference(newStart).inMinutes}min  '
-          'changed=${newStart != proposed.startDateTime || newEnd != proposed.endDateTime}');
+      debugPrint(
+        '[SlotConstraints] _clampShift OUT '
+        'start=${newStart.toIso8601String()}  '
+        'end=${newEnd.toIso8601String()}  '
+        'dur=${newEnd.difference(newStart).inMinutes}min  '
+        'changed=${newStart != proposed.startDateTime || newEnd != proposed.endDateTime}',
+      );
     }
 
     if (newStart == proposed.startDateTime && newEnd == proposed.endDateTime) {
@@ -113,7 +124,7 @@ class SlotConstraints {
     CalendarSlot anchor,
     SlotInteractionConfig config,
   ) {
-    if (proposed.isAllDay) {
+    if (proposed.rendersInFullDayRegion) {
       // All-day: ensure at least 1 day span.
       if (proposed.endDateTime.difference(proposed.startDateTime).inDays < 1) {
         return proposed.withDates(
@@ -164,7 +175,7 @@ class SlotConstraints {
     CalendarSlot anchor,
     SlotInteractionConfig config,
   ) {
-    if (proposed.isAllDay) {
+    if (proposed.rendersInFullDayRegion) {
       // All-day: ensure at least 1 day span.
       if (proposed.endDateTime.difference(proposed.startDateTime).inDays < 1) {
         return proposed.withDates(

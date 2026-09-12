@@ -172,7 +172,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
   Widget build(BuildContext context) {
     final slot = _slot;
     if (slot == null) return const SizedBox.shrink();
-    if (slot.isAllDay) return const SizedBox.shrink();
+    if (slot.rendersInFullDayRegion) return const SizedBox.shrink();
 
     final isDragging = _session != null;
     final accent =

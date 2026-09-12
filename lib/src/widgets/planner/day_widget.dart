@@ -134,7 +134,9 @@ class DayWidget extends StatelessWidget {
           if (dayParam.slotInteractionConfig.enableLongPressSlotSelection &&
               dayParam.slotInteractionConfig.enableShift) {
             var slotSelection = controller.slotSelectionNotifier.value;
-            if (slotSelection == null || slotSelection.isAllDay) return;
+            if (slotSelection == null || slotSelection.rendersInFullDayRegion) {
+              return;
+            }
             {
               final initialMinute = slotSelection.initialStartDate.totalMinutes
                   .toDouble();
@@ -676,7 +678,9 @@ class _EventsListWidgetState extends State<EventsListWidget> {
   }
 
   bool _overlaps(CalendarSlot slot, Event event) {
-    if (slot.isAllDay || slot.columnIndex != event.columnIndex) return false;
+    if (slot.rendersInFullDayRegion || slot.columnIndex != event.columnIndex) {
+      return false;
+    }
     final eventStart = event.effectiveStartTime ?? event.startTime;
     final eventEnd = event.effectiveEndTime ?? event.endTime;
     if (eventEnd == null) return false;

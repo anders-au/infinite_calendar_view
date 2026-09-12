@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../calendar_day_span_geometry.dart';
 import '../utils/extension.dart';
 import 'handles/slot_handle.dart';
 import 'slot_config.dart';
@@ -162,7 +163,9 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
   @override
   Widget build(BuildContext context) {
     final slot = _slot;
-    if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
+    if (slot == null || !slot.rendersInFullDayRegion) {
+      return const SizedBox.shrink();
+    }
     // The lane is allocated by the event overlay. Do not paint a temporary
     // row-zero slot before that allocator has reported a result.
     if (widget.rowNotifier?.value == null) return const SizedBox.shrink();
@@ -214,13 +217,9 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final contentX = startIndex * widget.dayWidth;
     final viewportX = contentX - scrollOffset;
 
-    final daysSpan = slot.totalDaysSpanned;
-
-    final naturalLeft = viewportX + widget.cellGapWidthPadding;
-    final naturalWidth =
-        daysSpan * widget.dayWidth -
-        widget.cellGapWidthPadding * 2 -
-        widget.eventEndGap;
+    final geometry = _slotGeometry(slot);
+    final naturalLeft = geometry.naturalLeft(viewportX);
+    final naturalWidth = geometry.naturalWidth;
     final effectiveViewportWidth =
         widget.viewportWidth ?? _stackWidthFromContext(context);
 
@@ -273,6 +272,30 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
       isEndOffScreen: isEndOffScreen,
     );
   }
+
+  CalendarDaySpanGeometry _slotGeometry(CalendarSlot slot) {
+    final start = slot.startDateTime;
+    final end = slot.endDateTime;
+    return CalendarDaySpanGeometry(
+      start: start,
+      end: end,
+      dayWidth: widget.dayWidth,
+      leadingPadding: widget.cellGapWidthPadding,
+      trailingGap: widget.eventEndGap,
+      endIsExclusive: true,
+      usePartialDayBounds:
+          slot.rendersInFullDayRegion &&
+          !slot.isAllDay &&
+          (!_isMidnight(start) || !_isMidnight(end)),
+    );
+  }
+
+  bool _isMidnight(DateTime value) =>
+      value.hour == 0 &&
+      value.minute == 0 &&
+      value.second == 0 &&
+      value.millisecond == 0 &&
+      value.microsecond == 0;
 
   // ── handle stack ─────────────────────────────────────────────────────
 

@@ -51,7 +51,7 @@ class SlotRenderer extends StatelessWidget {
     final accent =
         accentColor ?? config.accentColor ?? theme.colorScheme.secondary;
 
-    if (slot.isAllDay) {
+    if (slot.rendersInFullDayRegion) {
       return _AllDayPill(
         accent: accent,
         borderRadius: config.slotBorderRadius,

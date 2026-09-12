@@ -78,4 +78,53 @@ void main() {
       isTrue,
     );
   });
+
+  test('timed events longer than 24 hours use the full-day region', () {
+    final controller = EventsController();
+    final start = DateTime(2026, 9, 12, 20, 9);
+    final end = DateTime(2026, 9, 15, 10);
+
+    controller.calendarData.addEvents([
+      Event(startTime: start, endTime: end, title: 'Long timed event'),
+    ]);
+
+    final segments = [
+      for (
+        var day = start.withoutTime;
+        !day.isAfter(end.withoutTime);
+        day = day.add(const Duration(days: 1))
+      )
+        ...?controller.calendarData.dayEvents[day],
+    ];
+
+    expect(segments, hasLength(4));
+    expect(segments.every((event) => event.rendersInFullDayRegion), isTrue);
+    expect(segments.every((event) => !event.isFullDay), isTrue);
+    expect(segments.first.effectiveStartTime, start);
+    expect(segments.last.effectiveEndTime, end);
+  });
+
+  test('a timed event ending at midnight does not add an empty end day', () {
+    final controller = EventsController();
+    final start = DateTime(2026, 9, 12, 20, 9);
+    final end = DateTime(2026, 9, 15);
+
+    controller.calendarData.addEvents([
+      Event(startTime: start, endTime: end, title: 'Long timed event'),
+    ]);
+
+    expect(
+      controller.calendarData.dayEvents[DateTime(2026, 9, 12)],
+      hasLength(1),
+    );
+    expect(
+      controller.calendarData.dayEvents[DateTime(2026, 9, 13)],
+      hasLength(1),
+    );
+    expect(
+      controller.calendarData.dayEvents[DateTime(2026, 9, 14)],
+      hasLength(1),
+    );
+    expect(controller.calendarData.dayEvents[DateTime(2026, 9, 15)], isNull);
+  });
 }

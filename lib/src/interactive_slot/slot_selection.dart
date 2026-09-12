@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 
 import '../utils/extension.dart';
+import '../calendar_presentation_policy.dart';
 import '../utils/planner_time_mapper.dart';
 import 'slot_config.dart';
 
@@ -12,8 +13,9 @@ bool debugSlotDrag = false;
 /// Unified immutable model for an interactive slot selection in the planner.
 ///
 /// Replaces the previous `CalendarSlot` sealed class hierarchy
-/// (`TimedSlotSelection` + `AllDaySlotSelection`).  A single class with an
-/// [isAllDay] flag covers both timed time-grid slots and all-day-bar pills.
+/// (`TimedSlotSelection` + `AllDaySlotSelection`). A single class preserves
+/// source schedule semantics in [isAllDay]; the package derives the visual
+/// lane from [rendersInFullDayRegion].
 ///
 /// Every drag-update produces a **new** instance — the model is fully
 /// immutable.  The anchor snapshot captured at drag-start never mutates,
@@ -28,23 +30,34 @@ class CalendarSlot {
 
   /// Start date-time.  Always carries a full time component.
   ///
-  /// * Timed slots use the full value.
-  /// * All-day slots set the time to midnight ([DateTime.hour] == 0,
-  ///   [DateTime.minute] == 0).
+  /// Long timed slots retain their exact non-midnight bounds even when they
+  /// render in the all-day lane.
   final DateTime startDateTime;
 
   /// Duration of the slot.  Always positive (zero-length slots are not
   /// valid).  Together with [startDateTime] this fully defines the slot
   /// extents — [endDateTime] is derived.
   ///
-  /// * Timed slots store their exact duration (e.g. 60 minutes).
-  /// * All-day slots store `days × 1440` minutes so a 3-day all-day slot
-  ///   has a duration of 4320 minutes.
+  /// Timed and presentation-day-lane slots retain their exact duration.
+  /// Explicit all-day slots use their midnight-based day span.
   final Duration duration;
 
-  /// When true, the slot renders as a horizontal pill in the all-day bar
-  /// instead of a vertical block in the time grid.
+  /// Whether the source schedule is explicitly all-day.
+  ///
+  /// The rendering lane is derived by [rendersInFullDayRegion].
   final bool isAllDay;
+
+  /// Whether this slot belongs in the all-day presentation lane.
+  ///
+  /// This is derived from the source all-day flag and exact slot bounds. A
+  /// long timed slot therefore remains timed for persistence while rendering
+  /// in the all-day lane.
+  bool get rendersInFullDayRegion =>
+      CalendarPresentationPolicy.rendersInFullDayRegion(
+        start: startDateTime,
+        end: endDateTime,
+        sourceIsAllDay: isAllDay,
+      );
 
   /// Whether the finite start is only a projection of an unbounded interval.
   final bool continuesBefore;
@@ -139,11 +152,6 @@ class CalendarSlot {
   /// Uses [effectiveEndDateTime] so a slot ending at midnight is still
   /// treated as single-day.
   int get totalDaysSpanned {
-    if (isAllDay) {
-      // All-day duration is in whole days; compute span directly.
-      final days = duration.inDays;
-      return days > 0 ? days : 1;
-    }
     return effectiveEndDateTime.withoutTime
             .difference(startDateTime.withoutTime)
             .inDays +
@@ -177,7 +185,7 @@ class CalendarSlot {
   /// An all-day slot Jan 1 → Jan 3 (3 days) becomes timed
   /// Jan 1 00:00 → Jan 4 00:00.
   CalendarSlot toTimed() {
-    if (!isAllDay) return this;
+    if (!rendersInFullDayRegion) return this;
     return CalendarSlot(
       columnIndex: columnIndex,
       initialStartDate: initialStartDate,
@@ -234,7 +242,9 @@ class CalendarSlot {
         );
         final newDur = endDateTime.difference(newStart);
         if (newDur.inMinutes <= 0) {
-          final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
+          final minDur = rendersInFullDayRegion
+              ? PlannerTimeMapper.minutesPerDay
+              : 1;
           result = withDates(
             endDateTime.subtract(Duration(minutes: minDur)),
             endDateTime,
@@ -251,7 +261,9 @@ class CalendarSlot {
         );
         final newDur = newEnd.difference(startDateTime);
         if (newDur.inMinutes <= 0) {
-          final minDur = isAllDay ? PlannerTimeMapper.minutesPerDay : 1;
+          final minDur = rendersInFullDayRegion
+              ? PlannerTimeMapper.minutesPerDay
+              : 1;
           result = withDuration(Duration(minutes: minDur));
         } else {
           result = withDuration(newDur);

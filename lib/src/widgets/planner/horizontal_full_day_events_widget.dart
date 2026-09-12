@@ -278,7 +278,9 @@ class _HorizontalFullDayEventsWidgetState
       ]),
       builder: (context, _) {
         final slot = notifier.value;
-        if (slot == null || !slot.isAllDay) return const SizedBox.shrink();
+        if (slot == null || !slot.rendersInFullDayRegion) {
+          return const SizedBox.shrink();
+        }
 
         final innerWidth = widget.dayWidth - widget.cellGapWidthPadding * 2;
         final columnPositions = columnsParam.getColumPositions(
@@ -498,7 +500,12 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
 
     if (eventByKey.isEmpty) {
       final hasSlot =
-          widget.controller.slotSelectionNotifier.value?.isAllDay == true;
+          widget
+              .controller
+              .slotSelectionNotifier
+              .value
+              ?.rendersInFullDayRegion ==
+          true;
       _reportSlotRow(0);
       widget.maxRowsNotifier?.value = hasSlot ? 1 : 0;
       return const SizedBox.shrink();
@@ -507,23 +514,12 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     // Compute day spans before sorting so the sort can use span as a
     // tiebreaker (longer / multi-day events first for stable row assignment).
     final Map<UniqueKey, int> spanByKey = {};
+    final Map<UniqueKey, CalendarDaySpanGeometry> geometryByKey = {};
     for (final key in eventByKey.keys) {
       final e = eventByKey[key]!;
-      int daysSpan = 1;
-      if (e.isMultiDay && e.effectiveEndTime != null) {
-        final endDay = DateTime(
-          e.effectiveEndTime!.year,
-          e.effectiveEndTime!.month,
-          e.effectiveEndTime!.day,
-        );
-        final startDay = DateTime(
-          e.startTime.year,
-          e.startTime.month,
-          e.startTime.day,
-        );
-        daysSpan = endDay.difference(startDay).inDays + 1;
-      }
-      spanByKey[key] = daysSpan;
+      final geometry = _eventGeometry(e);
+      geometryByKey[key] = geometry;
+      spanByKey[key] = e.isMultiDay ? geometry.dayCount : 1;
     }
 
     // Sort by start time, then longest span first, then a stable event ID.
@@ -547,12 +543,12 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     final visibleKeys = keys.where((key) {
       final startIndex = startIndexByKey[key]!;
       final daysSpan = spanByKey[key]!;
+      final geometry = geometryByKey[key]!;
       final endIndex = startIndex + daysSpan - 1;
-      final naturalLeft = startIndex * widget.dayWidth - offset + pad;
-      final naturalWidth =
-          widget.dayWidth * daysSpan -
-          pad * 2 -
-          widget.fullDayParam.eventEndGap;
+      final naturalLeft = geometry.naturalLeft(
+        startIndex * widget.dayWidth - offset,
+      );
+      final naturalWidth = geometry.naturalWidth;
       final naturalRight = naturalLeft + naturalWidth;
 
       if (daysSpan > 1) {
@@ -591,7 +587,8 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     // The interactive all-day slot owns row zero. Recurrence-preview events
     // may share it on non-overlapping days; regular events stay below.
     final hasSlotSelection =
-        widget.controller.slotSelectionNotifier.value?.isAllDay == true;
+        widget.controller.slotSelectionNotifier.value?.rendersInFullDayRegion ==
+        true;
     if (hasSlotSelection) {
       final slot = widget.controller.slotSelectionNotifier.value!;
       final baseDay = widget.getDayFromIndex(0).withoutTime;
@@ -624,15 +621,15 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
       final event = eventByKey[key]!;
       final startIndex = startIndexByKey[key]!;
       final daysSpan = spanByKey[key]!;
+      final geometry = geometryByKey[key]!;
       final row = rowByKey[key]!;
 
       final int endIndex = startIndex + daysSpan - 1;
 
-      final double naturalLeft = startIndex * widget.dayWidth - offset + pad;
-      final double naturalWidth =
-          widget.dayWidth * daysSpan -
-          pad * 2 -
-          widget.fullDayParam.eventEndGap;
+      final double naturalLeft = geometry.naturalLeft(
+        startIndex * widget.dayWidth - offset,
+      );
+      final double naturalWidth = geometry.naturalWidth;
       final double naturalRight = naturalLeft + naturalWidth;
 
       // Visibility skip: use index-based logic for multi-day events so that
@@ -685,6 +682,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
 
       positioned.add(
         Positioned(
+          key: ValueKey('fullDayEvent.${event.uniqueId}'),
           left: left,
           top: top,
           width: width,
@@ -749,6 +747,23 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     final notifier = widget.slotRowNotifier;
     if (notifier == null || notifier.value == row) return;
     notifier.value = row;
+  }
+
+  CalendarDaySpanGeometry _eventGeometry(Event event) {
+    final start = event.effectiveStartTime ?? event.startTime;
+    final end =
+        event.effectiveEndTime ??
+        event.endTime ??
+        start.add(const Duration(days: 1));
+    return CalendarDaySpanGeometry(
+      start: start,
+      end: end,
+      dayWidth: widget.dayWidth,
+      leadingPadding: widget.cellGapWidthPadding,
+      trailingGap: widget.fullDayParam.eventEndGap,
+      endIsExclusive: !event.isFullDay,
+      usePartialDayBounds: event.rendersInFullDayRegion && !event.isFullDay,
+    );
   }
 
   String _layoutId(Event event) {
