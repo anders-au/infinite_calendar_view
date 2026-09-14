@@ -51,7 +51,9 @@ class EventsList extends StatefulWidget {
     this.dayHeaderBuilder,
     this.onDayChange,
     this.dayEventsBuilder,
-    this.verticalScrollPhysics = const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast),
+    this.verticalScrollPhysics = const BouncingScrollPhysics(
+      decelerationRate: ScrollDecelerationRate.fast,
+    ),
     this.verticalController,
     this.listViewController,
     this.hideDaysWithoutEvents = false,
@@ -91,7 +93,8 @@ class EventsList extends StatefulWidget {
   final bool showWebScrollBar;
 
   /// day builder in top bar
-  final Widget Function(DateTime day, bool isToday, List<Event>? events)? dayHeaderBuilder;
+  final Widget Function(DateTime day, bool isToday, List<Event>? events)?
+  dayHeaderBuilder;
 
   /// Vertical day scroll physics
   final ScrollPhysics verticalScrollPhysics;
@@ -147,11 +150,13 @@ class EventsListState extends State<EventsList> {
   @override
   void initState() {
     super.initState();
-    initialDay = widget.initialDate?.withoutTime ?? widget.controller.focusedDay;
+    initialDay =
+        widget.initialDate?.withoutTime ?? widget.controller.focusedDay;
     stickyDay = initialDay;
     _ownsMainVerticalController = widget.verticalController == null;
     mainVerticalController = widget.verticalController ?? ScrollController();
-    _listViewController = widget.listViewController ?? EventsListViewController();
+    _listViewController =
+        widget.listViewController ?? EventsListViewController();
     _attachListViewController();
     if (widget.hideDaysWithoutEvents) {
       _sparseDays = _buildSparseDays();
@@ -174,7 +179,8 @@ class EventsListState extends State<EventsList> {
 
     if (oldWidget.listViewController != widget.listViewController) {
       _listViewController.detach(owner: _listViewControllerOwner);
-      _listViewController = widget.listViewController ?? EventsListViewController();
+      _listViewController =
+          widget.listViewController ?? EventsListViewController();
       _attachListViewController();
     }
 
@@ -198,7 +204,8 @@ class EventsListState extends State<EventsList> {
           _sparseCenterIndex = _nearestSparseCenterIndex(newDays, initialDay);
         });
       }
-    } else if (oldWidget.hideDaysWithoutEvents && _sparseControllerListener != null) {
+    } else if (oldWidget.hideDaysWithoutEvents &&
+        _sparseControllerListener != null) {
       // Mode was turned off — detach listener.
       widget.controller.removeListener(_sparseControllerListener!);
       _sparseControllerListener = null;
@@ -213,7 +220,9 @@ class EventsListState extends State<EventsList> {
     final today = DateTime.now().withoutTime;
     final maxPrev = widget.maxPreviousDays;
     final maxNext = widget.maxNextDays;
-    final earliest = maxPrev != null ? today.subtract(Duration(days: maxPrev)) : null;
+    final earliest = maxPrev != null
+        ? today.subtract(Duration(days: maxPrev))
+        : null;
     final latest = maxNext != null ? today.add(Duration(days: maxNext)) : null;
 
     final days = <DateTime>{};
@@ -230,28 +239,27 @@ class EventsListState extends State<EventsList> {
   }
 
   /// Called whenever the [EventsController] notifies listeners while in
-  /// sparse mode.  Rebuilds the sparse day list and forces a full list rebuild
-  /// only when the set of visible days actually changed.
+  /// sparse mode. Rebuilds the sparse day list only when its membership
+  /// changes.
+  ///
+  /// Keep the existing scroll controller and list identity here. Replacing a
+  /// controller during a ballistic scroll cancels its activity, which makes
+  /// loading events while the user is scrolling feel like the list suddenly
+  /// hits a wall. The center index is updated so index zero remains anchored
+  /// to the currently sticky day whenever that day is still present.
   void _onSparseControllerUpdate() {
     if (!mounted) return;
     final newDays = _buildSparseDays();
     if (listEquals(newDays, _sparseDays)) return;
 
-    // Preserve scroll position: anchor on the currently sticky day.
+    // Preserve the current sparse anchor without replacing the live scroll
+    // position. This allows any active drag or ballistic activity to continue.
     final newCenter = _nearestSparseCenterIndex(newDays, stickyDay);
-    if (_ownsMainVerticalController) mainVerticalController.dispose();
-    final newController = widget.verticalController ?? ScrollController();
     setState(() {
-      key = UniqueKey();
       _sparseDays = newDays;
       _sparseCenterIndex = newCenter;
       initialDay = stickyDay;
-      _ownsMainVerticalController = widget.verticalController == null;
-      mainVerticalController = newController;
     });
-    if (!_ownsMainVerticalController && newController.hasClients) {
-      newController.jumpTo(0);
-    }
   }
 
   void _attachListViewController() {
@@ -259,8 +267,10 @@ class EventsListState extends State<EventsList> {
       owner: _listViewControllerOwner,
       animateToDate: _animateToDate,
       jumpToDate: jumpToDate,
-      animateToNextPage: (duration, curve) => _animateToRelativeDay(1, duration, curve),
-      animateToPreviousPage: (duration, curve) => _animateToRelativeDay(-1, duration, curve),
+      animateToNextPage: (duration, curve) =>
+          _animateToRelativeDay(1, duration, curve),
+      animateToPreviousPage: (duration, curve) =>
+          _animateToRelativeDay(-1, duration, curve),
       jumpToNextPage: () => _jumpToRelativeDay(1),
       jumpToPreviousPage: () => _jumpToRelativeDay(-1),
       isDateVisible: _isDateVisible,
@@ -268,7 +278,11 @@ class EventsListState extends State<EventsList> {
     );
   }
 
-  Future<void> _animateToDate(DateTime date, Duration duration, Curve curve) async {
+  Future<void> _animateToDate(
+    DateTime date,
+    Duration duration,
+    Curve curve,
+  ) async {
     final targetDay = date.withoutTime;
     if (_isDateVisible(targetDay)) {
       return;
@@ -287,15 +301,23 @@ class EventsListState extends State<EventsList> {
     }
 
     final totalMs = duration.inMilliseconds;
-    final stepMs = totalMs <= 0 ? 110 : (totalMs ~/ dayDelta.abs().clamp(1, _maxAnimatedDayDistance)).clamp(70, 150);
-    final viewportExtent = mainVerticalController.position.viewportDimension.clamp(120.0, 1200.0);
+    final stepMs = totalMs <= 0
+        ? 110
+        : (totalMs ~/ dayDelta.abs().clamp(1, _maxAnimatedDayDistance)).clamp(
+            70,
+            150,
+          );
+    final viewportExtent = mainVerticalController.position.viewportDimension
+        .clamp(120.0, 1200.0);
     final movingForward = dayDelta > 0;
     final maxSteps = dayDelta.abs() * 5;
     var previousStickyDay = stickyDay;
     var stalledSteps = 0;
 
     for (var i = 0; i < maxSteps; i++) {
-      if (!_isDateVisible(targetDay) && mounted && mainVerticalController.hasClients) {
+      if (!_isDateVisible(targetDay) &&
+          mounted &&
+          mainVerticalController.hasClients) {
         final remainingDays = targetDay.difference(stickyDay).inDays.abs();
         final double stepFactor;
         if (remainingDays <= 1) {
@@ -306,7 +328,9 @@ class EventsListState extends State<EventsList> {
           stepFactor = 0.5;
         }
         final scrollDelta = viewportExtent * stepFactor;
-        final nextOffset = movingForward ? (mainVerticalController.offset + scrollDelta) : (mainVerticalController.offset - scrollDelta);
+        final nextOffset = movingForward
+            ? (mainVerticalController.offset + scrollDelta)
+            : (mainVerticalController.offset - scrollDelta);
         final minOffset = mainVerticalController.position.minScrollExtent;
         final maxOffset = mainVerticalController.position.maxScrollExtent;
         final clampedOffset = nextOffset.clamp(minOffset, maxOffset);
@@ -355,7 +379,11 @@ class EventsListState extends State<EventsList> {
     return stickyDay.isBefore(targetDay);
   }
 
-  Future<void> _animateToRelativeDay(int dayDelta, Duration duration, Curve curve) {
+  Future<void> _animateToRelativeDay(
+    int dayDelta,
+    Duration duration,
+    Curve curve,
+  ) {
     final targetDay = stickyDay.add(Duration(days: dayDelta));
     return _animateToDate(targetDay, duration, curve);
   }
@@ -382,8 +410,13 @@ class EventsListState extends State<EventsList> {
   Widget build(BuildContext context) {
     return ScrollConfiguration(
       key: key,
-      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: widget.showWebScrollBar, dragDevices: PointerDeviceKind.values.toSet()),
-      child: widget.hideDaysWithoutEvents ? _buildSparseList() : _buildDenseList(),
+      behavior: ScrollConfiguration.of(context).copyWith(
+        scrollbars: widget.showWebScrollBar,
+        dragDevices: PointerDeviceKind.values.toSet(),
+      ),
+      child: widget.hideDaysWithoutEvents
+          ? _buildSparseList()
+          : _buildDenseList(),
     );
   }
 
@@ -412,7 +445,9 @@ class EventsListState extends State<EventsList> {
       builder: (context, index) {
         final sparseIdx = centerIdx + index;
         if (sparseIdx < 0 || sparseIdx >= _sparseDays.length) {
-          return InfiniteListItem(contentBuilder: (context) => const SizedBox.shrink());
+          return InfiniteListItem(
+            contentBuilder: (context) => const SizedBox.shrink(),
+          );
         }
         return _buildDayItem(_sparseDays[sparseIdx]);
       },
@@ -452,10 +487,19 @@ class EventsListState extends State<EventsList> {
             });
           }
         }
-        return HeaderListWidget(controller: widget.controller, day: day, isToday: isToday, dayHeaderBuilder: widget.dayHeaderBuilder);
+        return HeaderListWidget(
+          controller: widget.controller,
+          day: day,
+          isToday: isToday,
+          dayHeaderBuilder: widget.dayHeaderBuilder,
+        );
       },
-      contentBuilder: (context) =>
-          DayEvents(controller: widget.controller, day: day, dayEventsBuilder: widget.dayEventsBuilder, initialEvents: dayEvents),
+      contentBuilder: (context) => DayEvents(
+        controller: widget.controller,
+        day: day,
+        dayEventsBuilder: widget.dayEventsBuilder,
+        initialEvents: dayEvents,
+      ),
     );
   }
 
@@ -481,7 +525,8 @@ class EventsListState extends State<EventsList> {
         _sparseCenterIndex = newCenter;
         // reset scroll
         _ownsMainVerticalController = widget.verticalController == null;
-        mainVerticalController = widget.verticalController ?? ScrollController();
+        mainVerticalController =
+            widget.verticalController ?? ScrollController();
       });
 
       _notifyVisibleDayChanged(initialDay);
@@ -518,7 +563,13 @@ class EventsListState extends State<EventsList> {
 }
 
 class DayEvents extends StatefulWidget {
-  const DayEvents({super.key, required this.controller, required this.day, required this.dayEventsBuilder, this.initialEvents});
+  const DayEvents({
+    super.key,
+    required this.controller,
+    required this.day,
+    required this.dayEventsBuilder,
+    this.initialEvents,
+  });
 
   final EventsController controller;
   final DateTime day;
@@ -536,7 +587,9 @@ class _DayEventsState extends State<DayEvents> {
   @override
   void initState() {
     super.initState();
-    events = widget.initialEvents ?? widget.controller.getSortedFilteredDayEvents(widget.day);
+    events =
+        widget.initialEvents ??
+        widget.controller.getSortedFilteredDayEvents(widget.day);
     eventListener = () => updateEvents();
     widget.controller.addListener(eventListener);
   }
@@ -562,6 +615,7 @@ class _DayEventsState extends State<DayEvents> {
 
   @override
   Widget build(BuildContext context) {
-    return widget.dayEventsBuilder?.call(widget.day.withoutTime, events) ?? DefaultDayEvents(events: events);
+    return widget.dayEventsBuilder?.call(widget.day.withoutTime, events) ??
+        DefaultDayEvents(events: events);
   }
 }
