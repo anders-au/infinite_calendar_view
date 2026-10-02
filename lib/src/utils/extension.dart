@@ -12,6 +12,8 @@ extension DateTimeExtensions on DateTime {
   /// Then this getter will return 12*60 + 4 which evaluates to 724.
   int get totalMinutes => hour * 60 + minute;
 
+  /// Counts calendar dates using their fields, independent of elapsed hours
+  /// and daylight-saving changes between local midnights.
   int getDayDifference(DateTime date) =>
       utcWithoutTime.difference(date.utcWithoutTime).inDays;
 
@@ -23,8 +25,16 @@ extension DateTimeExtensions on DateTime {
 
   // add calendar days without offset if the timezone changes between days
   DateTime addCalendarDays(int days) {
-    return DateTime(year, month, day + days, hour, minute, second, millisecond,
-        microsecond);
+    return DateTime(
+      year,
+      month,
+      day + days,
+      hour,
+      minute,
+      second,
+      millisecond,
+      microsecond,
+    );
   }
 }
 
@@ -62,8 +72,9 @@ extension ColorBrightness on Color {
   Color lighten([double amount = .1]) {
     assert(amount >= 0 && amount <= 1);
     final hsl = HSLColor.fromColor(this);
-    final hslLight =
-        hsl.withLightness((hsl.lightness + amount).clamp(0.0, 1.0));
+    final hslLight = hsl.withLightness(
+      (hsl.lightness + amount).clamp(0.0, 1.0),
+    );
     return hslLight.toColor();
   }
 }

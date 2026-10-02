@@ -93,11 +93,12 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    await plannerViewController.animateToDate(
+    final navigation = plannerViewController.animateToDate(
       DateTime(2026, 1, 15),
       duration: const Duration(milliseconds: 200),
     );
     await tester.pumpAndSettle();
+    await navigation;
 
     expect(changedDays.last, DateTime(2026, 1, 13));
     expect(controller.focusedDay, DateTime(2026, 1, 13));

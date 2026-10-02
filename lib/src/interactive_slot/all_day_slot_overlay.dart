@@ -211,9 +211,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
         : 0.0;
 
     final startDay = slot.startDateTime.withoutTime;
-    final startIndex = startDay
-        .difference(widget.initialDate.withoutTime)
-        .inDays;
+    final startIndex = startDay.getDayDifference(widget.initialDate);
     final contentX = startIndex * widget.dayWidth;
     final viewportX = contentX - scrollOffset;
 

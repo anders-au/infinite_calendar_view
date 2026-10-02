@@ -155,7 +155,7 @@ class _MultiDaySegment {
 
 List<DateTime> getDaysInBetween(DateTime startDate, DateTime endDate) {
   List<DateTime> days = [];
-  for (int i = 0; i <= endDate.difference(startDate).inDays; i++) {
+  for (int i = 0; i <= endDate.getDayDifference(startDate); i++) {
     days.add(startDate.addCalendarDays(i));
   }
   return days;

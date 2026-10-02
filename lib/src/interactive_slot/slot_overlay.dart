@@ -197,9 +197,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
 
     // ── Render-layer values (reactive — follow the live slot) ─────
     final rStartDay = slot.startDateTime.withoutTime;
-    final rStartDayIndex = rStartDay
-        .difference(widget.initialDate.withoutTime)
-        .inDays;
+    final rStartDayIndex = rStartDay.getDayDifference(widget.initialDate);
     final rStartMinute = slot.startDateTime.totalMinutes.toDouble();
     final rEndMinuteAbs = (rStartMinute + slot.durationInMinutes).toDouble();
     final rTotalDays = slot.totalDaysSpanned;
@@ -611,7 +609,7 @@ class _SlotOverlayState extends State<SlotOverlay> {
             // slot, keep that relative column on screen — not blindly the
             // start, which the user wasn't focused on.
             dragCol != null && dragCol > 0
-                ? _slot!.startDateTime.add(Duration(days: dragCol))
+                ? _slot!.startDateTime.addCalendarDays(dragCol)
                 : _slot!.startDateTime,
         };
       }

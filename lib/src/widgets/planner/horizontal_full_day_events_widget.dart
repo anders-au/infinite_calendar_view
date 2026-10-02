@@ -592,14 +592,9 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
     if (hasSlotSelection) {
       final slot = widget.controller.slotSelectionNotifier.value!;
       final baseDay = widget.getDayFromIndex(0).withoutTime;
-      final indexDayDelta = widget
-          .getDayFromIndex(1)
-          .withoutTime
-          .difference(baseDay)
-          .inDays;
+      final indexDayDelta = widget.getDayFromIndex(1).getDayDifference(baseDay);
       final slotStart =
-          slot.startDateTime.withoutTime.difference(baseDay).inDays ~/
-          indexDayDelta;
+          slot.startDateTime.getDayDifference(baseDay) ~/ indexDayDelta;
       final slotEnd = slotStart + slot.totalDaysSpanned - 1;
 
       for (final key in rowByKey.keys) {
@@ -752,9 +747,7 @@ class _MultiDayEventsOverlayState extends State<MultiDayEventsOverlay> {
   CalendarDaySpanGeometry _eventGeometry(Event event) {
     final start = event.effectiveStartTime ?? event.startTime;
     final end =
-        event.effectiveEndTime ??
-        event.endTime ??
-        start.add(const Duration(days: 1));
+        event.effectiveEndTime ?? event.endTime ?? start.addCalendarDays(1);
     return CalendarDaySpanGeometry(
       start: start,
       end: end,

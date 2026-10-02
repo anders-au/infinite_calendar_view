@@ -40,6 +40,8 @@ class CalendarSlot {
   ///
   /// Timed and presentation-day-lane slots retain their exact duration.
   /// Explicit all-day slots use their midnight-based day span.
+  /// Whole-day constructor durations represent calendar days and are
+  /// normalized to the elapsed duration between the calendar boundaries.
   final Duration duration;
 
   /// Whether the source schedule is explicitly all-day.
@@ -69,11 +71,14 @@ class CalendarSlot {
     required this.columnIndex,
     required this.initialStartDate,
     required this.startDateTime,
-    required this.duration,
+    required Duration duration,
     this.isAllDay = false,
     this.continuesBefore = false,
     this.continuesAfter = false,
-  }) : assert(!duration.isNegative, 'duration must not be negative');
+  }) : assert(!duration.isNegative, 'duration must not be negative'),
+       duration = isAllDay
+           ? _allDayDuration(startDateTime, duration)
+           : duration;
 
   // ── factories ────────────────────────────────────────────────────────
 
@@ -106,12 +111,12 @@ class CalendarSlot {
   }) {
     final startDay = startDate.withoutTime;
     final endDay = endDate.withoutTime;
-    final days = endDay.difference(startDay).inDays + 1;
+    final endExclusive = endDay.addCalendarDays(1);
     return CalendarSlot(
       columnIndex: columnIndex,
       initialStartDate: startDay,
       startDateTime: startDay,
-      duration: Duration(days: days),
+      duration: endExclusive.difference(startDay),
       isAllDay: true,
     );
   }
@@ -152,10 +157,7 @@ class CalendarSlot {
   /// Uses [effectiveEndDateTime] so a slot ending at midnight is still
   /// treated as single-day.
   int get totalDaysSpanned {
-    return effectiveEndDateTime.withoutTime
-            .difference(startDateTime.withoutTime)
-            .inDays +
-        1;
+    return effectiveEndDateTime.getDayDifference(startDateTime) + 1;
   }
 
   // ── conversion ───────────────────────────────────────────────────────
@@ -168,11 +170,12 @@ class CalendarSlot {
   CalendarSlot toAllDay() {
     if (isAllDay) return this;
     final days = totalDaysSpanned;
+    final start = startDateTime.withoutTime;
     return CalendarSlot(
       columnIndex: columnIndex,
       initialStartDate: initialStartDate,
-      startDateTime: startDateTime.withoutTime,
-      duration: Duration(days: days),
+      startDateTime: start,
+      duration: start.addCalendarDays(days).difference(start),
       isAllDay: true,
       continuesBefore: continuesBefore,
       continuesAfter: continuesAfter,
@@ -225,9 +228,9 @@ class CalendarSlot {
     switch (mode) {
       case DragMode.shift:
         final newStart = _snapDateTime(
-          startDateTime.add(
-            Duration(minutes: dayShift + rawMinuteDelta.round()),
-          ),
+          startDateTime
+              .addCalendarDays(days)
+              .add(Duration(minutes: rawMinuteDelta.round())),
           config.stepMinutes,
         );
         result = withStart(newStart);
@@ -235,9 +238,9 @@ class CalendarSlot {
 
       case DragMode.extendStart:
         final newStart = _snapDateTime(
-          startDateTime.add(
-            Duration(minutes: dayShift + rawMinuteDelta.round()),
-          ),
+          startDateTime
+              .addCalendarDays(days)
+              .add(Duration(minutes: rawMinuteDelta.round())),
           config.stepMinutes,
         );
         final newDur = endDateTime.difference(newStart);
@@ -256,7 +259,9 @@ class CalendarSlot {
 
       case DragMode.extendEnd:
         final newEnd = _snapDateTime(
-          endDateTime.add(Duration(minutes: dayShift + rawMinuteDelta.round())),
+          endDateTime
+              .addCalendarDays(days)
+              .add(Duration(minutes: rawMinuteDelta.round())),
           config.stepMinutes,
         );
         final newDur = newEnd.difference(startDateTime);
@@ -316,13 +321,16 @@ class CalendarSlot {
 
   // ── helpers ──────────────────────────────────────────────────────────
 
-  /// Returns a copy with [newStart], preserving [duration].
+  /// Returns a copy with [newStart], preserving the elapsed duration for timed
+  /// slots and the calendar day count for all-day slots.
   CalendarSlot withStart(DateTime newStart) {
     return CalendarSlot(
       columnIndex: columnIndex,
       initialStartDate: initialStartDate,
       startDateTime: newStart,
-      duration: duration,
+      duration: isAllDay
+          ? newStart.addCalendarDays(totalDaysSpanned).difference(newStart)
+          : duration,
       isAllDay: isAllDay,
       continuesBefore: continuesBefore,
       continuesAfter: continuesAfter,
@@ -367,14 +375,20 @@ class CalendarSlot {
     );
   }
 
+  static Duration _allDayDuration(DateTime start, Duration duration) {
+    // Exact midnight endpoints (including 23/25-hour DST days) already
+    // encode calendar bounds. Whole 24-hour units are nominal day counts.
+    if (_isMidnight(start.add(duration)) ||
+        duration.inMicroseconds % Duration.microsecondsPerDay != 0) {
+      return duration;
+    }
+    return start.addCalendarDays(duration.inDays).difference(start);
+  }
+
   static DateTime _snapDateTime(DateTime value, int step) {
     final minuteOfDay = value.hour * 60 + value.minute;
     final snappedMinute = step * (minuteOfDay / step).round();
-    return DateTime(
-      value.year,
-      value.month,
-      value.day,
-    ).add(Duration(minutes: snappedMinute));
+    return DateTime(value.year, value.month, value.day, 0, snappedMinute);
   }
 
   static bool _isMidnight(DateTime dt) =>

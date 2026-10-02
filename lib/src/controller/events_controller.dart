@@ -127,11 +127,7 @@ class CalendarData {
   void addEvents(List<Event> events) {
     for (var event in events) {
       final rendersInFullDayRegion = event.rendersInFullDayRegion;
-      var days =
-          event.endTime?.withoutTime
-              .difference(event.startTime.withoutTime)
-              .inDays ??
-          0;
+      var days = event.endTime?.getDayDifference(event.startTime) ?? 0;
       if (days > 0 &&
           event.endTime?.totalMinutes == 0 &&
           (!event.isFullDay || rendersInFullDayRegion)) {

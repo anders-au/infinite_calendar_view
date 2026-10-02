@@ -124,11 +124,11 @@ class SlotConstraints {
     CalendarSlot anchor,
     SlotInteractionConfig config,
   ) {
-    if (proposed.rendersInFullDayRegion) {
+    if (proposed.isAllDay) {
       // All-day: ensure at least 1 day span.
-      if (proposed.endDateTime.difference(proposed.startDateTime).inDays < 1) {
+      if (proposed.endDateTime.getDayDifference(proposed.startDateTime) < 1) {
         return proposed.withDates(
-          proposed.endDateTime.subtract(const Duration(days: 1)),
+          proposed.endDateTime.addCalendarDays(-1),
           proposed.endDateTime,
         );
       }
@@ -175,12 +175,12 @@ class SlotConstraints {
     CalendarSlot anchor,
     SlotInteractionConfig config,
   ) {
-    if (proposed.rendersInFullDayRegion) {
+    if (proposed.isAllDay) {
       // All-day: ensure at least 1 day span.
-      if (proposed.endDateTime.difference(proposed.startDateTime).inDays < 1) {
+      if (proposed.endDateTime.getDayDifference(proposed.startDateTime) < 1) {
         return proposed.withDates(
           proposed.startDateTime,
-          proposed.startDateTime.add(const Duration(days: 1)),
+          proposed.startDateTime.addCalendarDays(1),
         );
       }
       return proposed;
