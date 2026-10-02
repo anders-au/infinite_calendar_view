@@ -94,7 +94,7 @@ class Event {
     final end = effectiveEndTime ?? endTime;
     if (end == null) return false;
     final start = effectiveStartTime ?? startTime;
-    return end.withoutTime.difference(start.withoutTime).inDays == 1;
+    return end.getDayDifference(start) == 1;
   }
 
   int get timedStartMinuteInDay {
@@ -128,7 +128,7 @@ class Event {
     final end = effectiveEndTime ?? endTime;
     if (end == null) return 0;
     final start = effectiveStartTime ?? startTime;
-    final daySpan = end.withoutTime.difference(start.withoutTime).inDays;
+    final daySpan = end.getDayDifference(start);
     if (daySpan > 0 && end.totalMinutes == 0) return daySpan - 1;
     return daySpan;
   }

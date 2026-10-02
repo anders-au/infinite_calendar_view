@@ -132,7 +132,7 @@ class SlotGeometry {
   /// Returns the day index (relative to some reference) for a DateTime.
   /// Callers provide their own reference via [initialDate].
   int dayIndexFor(DateTime date, DateTime initialDate) {
-    return date.withoutTime.difference(initialDate.withoutTime).inDays;
+    return date.getDayDifference(initialDate);
   }
 
   int _dayDiffFromInitial(DateTime dt) => 0; // caller overrides

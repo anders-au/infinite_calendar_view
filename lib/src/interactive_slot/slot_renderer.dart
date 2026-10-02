@@ -609,7 +609,7 @@ class _AllDayLabels extends StatelessWidget {
               Expanded(
                 child: Text(
                   _formatDate(
-                    slot.endDateTime.subtract(const Duration(days: 1)),
+                    slot.endDateTime.subtract(const Duration(microseconds: 1)),
                   ),
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,

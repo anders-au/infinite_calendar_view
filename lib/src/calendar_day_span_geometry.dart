@@ -32,7 +32,7 @@ class CalendarDaySpanGeometry {
 
   int get dayCount {
     final lastOccupiedDay = _effectiveEnd.withoutTime;
-    return lastOccupiedDay.difference(start.withoutTime).inDays + 1;
+    return lastOccupiedDay.getDayDifference(start) + 1;
   }
 
   double get startInset =>

@@ -622,13 +622,11 @@ class EventsPlannerState extends State<EventsPlanner>
       target =
           _getBracketStartDayForTarget(
             referenceDay,
-          ).difference(initialDate.withoutTime).inDays *
+          ).getDayDifference(initialDate) *
           dayWidth;
     } else {
       // Snap to referenceDay itself as the first visible column.
-      target =
-          referenceDay.withoutTime.difference(initialDate.withoutTime).inDays *
-          dayWidth;
+      target = referenceDay.getDayDifference(initialDate) * dayWidth;
     }
 
     if ((target - mainHorizontalController.offset).abs() > 0.5) {
@@ -699,7 +697,7 @@ class EventsPlannerState extends State<EventsPlanner>
     }
 
     // ── compute the scroll offset for the target day ───────────────────
-    int dayDiff = targetDay.difference(initialDate.withoutTime).inDays;
+    int dayDiff = targetDay.getDayDifference(initialDate);
     if (widget.textDirection == TextDirection.rtl) {
       dayDiff = -dayDiff;
     }
