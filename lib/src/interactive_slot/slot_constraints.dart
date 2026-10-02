@@ -124,7 +124,7 @@ class SlotConstraints {
     CalendarSlot anchor,
     SlotInteractionConfig config,
   ) {
-    if (proposed.rendersInFullDayRegion) {
+    if (proposed.isAllDay) {
       // All-day: ensure at least 1 day span.
       if (proposed.endDateTime.getDayDifference(proposed.startDateTime) < 1) {
         return proposed.withDates(
@@ -175,7 +175,7 @@ class SlotConstraints {
     CalendarSlot anchor,
     SlotInteractionConfig config,
   ) {
-    if (proposed.rendersInFullDayRegion) {
+    if (proposed.isAllDay) {
       // All-day: ensure at least 1 day span.
       if (proposed.endDateTime.getDayDifference(proposed.startDateTime) < 1) {
         return proposed.withDates(

@@ -8,6 +8,79 @@ void main() {
   // Adelaide's October 4, 2026 transition, matching the reported failure.
   final initialDate = DateTime(2026, 10, 2);
 
+  test('long timed fall-back slot retains exact bounds when resized', () {
+    final start = DateTime(2026, 4, 5);
+    final end = DateTime(2026, 4, 5, 23, 30);
+    final slot = CalendarSlot(
+      columnIndex: 0,
+      initialStartDate: start,
+      startDateTime: start,
+      duration: end.difference(start),
+    );
+    for (final mode in [DragMode.extendStart, DragMode.extendEnd]) {
+      final proposed = slot.applyDelta(
+        Offset.zero,
+        config: const SlotInteractionConfig(),
+        mode: mode,
+        dayWidth: 100,
+        heightPerMinute: 1,
+      );
+      final result = SlotConstraints.clamp(
+        proposed: proposed,
+        anchor: slot,
+        mode: mode,
+        config: const SlotInteractionConfig(),
+      );
+      expect(result.startDateTime, start);
+      expect(result.endDateTime, end);
+      expect(result.isAllDay, isFalse);
+      final capped = SlotConstraints.clamp(
+        proposed: proposed,
+        anchor: slot,
+        mode: mode,
+        config: const SlotInteractionConfig(maxDurationMinutes: 60),
+      );
+      expect(capped.duration, const Duration(hours: 1));
+    }
+  });
+
+  for (final start in [DateTime(2026, 10, 4), DateTime(2026, 4, 5)]) {
+    for (final days in [1, 2]) {
+      test('constructor preserves $days all-day dates from $start', () {
+        final slot = CalendarSlot(
+          columnIndex: 0,
+          initialStartDate: start,
+          startDateTime: start,
+          duration: Duration(days: days),
+          isAllDay: true,
+        );
+        final end = DateTime(start.year, start.month, start.day + days);
+        expect(slot.endDateTime, end);
+        expect(slot.totalDaysSpanned, days);
+        expect(slot.copyWith().endDateTime, end);
+        expect(slot.toTimed().endDateTime, end);
+        final shiftedStart = DateTime(start.year, start.month, start.day + 7);
+        final shifted = slot.withStart(shiftedStart);
+        expect(shifted.totalDaysSpanned, days);
+        expect(
+          shifted.endDateTime,
+          DateTime(start.year, start.month, start.day + 7 + days),
+        );
+        expect(
+          CalendarDaySpanGeometry(
+            start: slot.startDateTime,
+            end: slot.endDateTime,
+            dayWidth: 100,
+            leadingPadding: 0,
+            trailingGap: 0,
+            endIsExclusive: true,
+          ).naturalWidth,
+          days * 100,
+        );
+      });
+    }
+  }
+
   test('multi-day events retain every date when split across DST', () {
     for (final start in [DateTime(2026, 10, 3), DateTime(2026, 4, 4)]) {
       final end = DateTime(start.year, start.month, start.day + 3);

@@ -40,6 +40,8 @@ class CalendarSlot {
   ///
   /// Timed and presentation-day-lane slots retain their exact duration.
   /// Explicit all-day slots use their midnight-based day span.
+  /// Whole-day constructor durations represent calendar days and are
+  /// normalized to the elapsed duration between the calendar boundaries.
   final Duration duration;
 
   /// Whether the source schedule is explicitly all-day.
@@ -69,11 +71,14 @@ class CalendarSlot {
     required this.columnIndex,
     required this.initialStartDate,
     required this.startDateTime,
-    required this.duration,
+    required Duration duration,
     this.isAllDay = false,
     this.continuesBefore = false,
     this.continuesAfter = false,
-  }) : assert(!duration.isNegative, 'duration must not be negative');
+  }) : assert(!duration.isNegative, 'duration must not be negative'),
+       duration = isAllDay
+           ? _allDayDuration(startDateTime, duration)
+           : duration;
 
   // ── factories ────────────────────────────────────────────────────────
 
@@ -368,6 +373,16 @@ class CalendarSlot {
       continuesBefore: continuesBefore,
       continuesAfter: continuesAfter,
     );
+  }
+
+  static Duration _allDayDuration(DateTime start, Duration duration) {
+    // Exact midnight endpoints (including 23/25-hour DST days) already
+    // encode calendar bounds. Whole 24-hour units are nominal day counts.
+    if (_isMidnight(start.add(duration)) ||
+        duration.inMicroseconds % Duration.microsecondsPerDay != 0) {
+      return duration;
+    }
+    return start.addCalendarDays(duration.inDays).difference(start);
   }
 
   static DateTime _snapDateTime(DateTime value, int step) {
