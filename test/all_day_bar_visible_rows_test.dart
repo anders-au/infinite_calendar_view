@@ -364,6 +364,68 @@ void main() {
     eventsController.dispose();
   });
 
+  testWidgets('ongoing all-day slot reaches the viewport edge', (tester) async {
+    final scrollController = ScrollController();
+    final rowNotifier = ValueNotifier<int?>(0);
+    final slotNotifier = ValueNotifier<CalendarSlot?>(
+      CalendarSlot(
+        columnIndex: 0,
+        initialStartDate: DateTime(2026, 7, 1),
+        startDateTime: DateTime(2026, 7, 1),
+        duration: const Duration(days: 2),
+        isAllDay: true,
+        continuesAfter: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 80,
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  controller: scrollController,
+                  scrollDirection: Axis.horizontal,
+                  child: const SizedBox(width: 1000, height: 1),
+                ),
+                AllDaySlotOverlay(
+                  slotNotifier: slotNotifier,
+                  config: const SlotInteractionConfig(),
+                  dayWidth: 100,
+                  eventHeight: 40,
+                  cellGapWidthPadding: 0,
+                  eventEndGap: 0,
+                  columnPositions: const [0, 100],
+                  initialDate: DateTime(2026, 7, 1),
+                  mainContentScrollController: scrollController,
+                  viewportWidth: 300,
+                  rowNotifier: rowNotifier,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final shift = tester.widget<Positioned>(
+      find.byKey(const ValueKey('allDaySlot.shift.positioned')),
+    );
+    expect(shift.left! + shift.width!, 300);
+    expect(
+      find.byKey(const ValueKey('allDaySlot.extendEnd.positioned')),
+      findsNothing,
+    );
+
+    rowNotifier.dispose();
+    slotNotifier.dispose();
+    scrollController.dispose();
+  });
+
   testWidgets(
     'visible all-day events repack when a middle event leaves viewport',
     (tester) async {

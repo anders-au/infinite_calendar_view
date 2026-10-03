@@ -216,10 +216,26 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final viewportX = contentX - scrollOffset;
 
     final geometry = _slotGeometry(slot);
-    final naturalLeft = geometry.naturalLeft(viewportX);
-    final naturalWidth = geometry.naturalWidth;
+    final projectedLeft = geometry.naturalLeft(viewportX);
+    final projectedWidth = geometry.naturalWidth;
+    final projectedRight = projectedLeft + projectedWidth;
     final effectiveViewportWidth =
         widget.viewportWidth ?? _stackWidthFromContext(context);
+
+    // An ongoing schedule is represented by a finite slot projection so it
+    // can be edited. Its continuation flags describe the real bounds: extend
+    // the visible body to the viewport edge instead of exposing the temporary
+    // projection boundary as if it were the event's end.
+    final naturalLeft = slot.continuesBefore && projectedLeft > 0
+        ? 0.0
+        : projectedLeft;
+    final naturalRight =
+        slot.continuesAfter &&
+            effectiveViewportWidth != null &&
+            projectedRight < effectiveViewportWidth
+        ? effectiveViewportWidth
+        : projectedRight;
+    final naturalWidth = naturalRight - naturalLeft;
 
     // Completely off-screen? Return empty.
     if (naturalLeft + naturalWidth <= 0 ||
@@ -231,7 +247,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     // Start is off-screen when the natural left edge is before the
     // viewport (sticky-left will clamp to 0).
     final isStartOffScreen =
-        naturalLeft < -_edgeVisibilityTolerance &&
+        (slot.continuesBefore || naturalLeft < -_edgeVisibilityTolerance) &&
         naturalLeft + naturalWidth > 0;
 
     // Sticky-left clamping.
@@ -252,12 +268,13 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
     final bool isEndOffScreen;
     if (effectiveViewportWidth != null) {
       isEndOffScreen =
+          slot.continuesAfter ||
           naturalLeft + naturalWidth >
-          effectiveViewportWidth + _edgeVisibilityTolerance;
+              effectiveViewportWidth + _edgeVisibilityTolerance;
     } else {
       // Last-resort fallback: detect via width truncation from
       // sticky-left clamping only.
-      isEndOffScreen = width < naturalWidth;
+      isEndOffScreen = slot.continuesAfter || width < naturalWidth;
     }
 
     const rowPadding = 2.0;
