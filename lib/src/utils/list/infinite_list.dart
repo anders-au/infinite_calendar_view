@@ -7,9 +7,12 @@ import './infinite_list_render.dart';
 import 'models/alignments.dart';
 import 'models/sticky_state.dart';
 import 'models/types.dart';
+import 'scroll_anchor.dart';
 
-typedef ItemBuilder<I> = InfiniteListItem<I> Function(
-    BuildContext context, I index);
+export 'scroll_anchor.dart' show ListScrollAnchor, ListScrollCorrection;
+
+typedef ItemBuilder<I> =
+    InfiniteListItem<I> Function(BuildContext context, I index);
 
 /// List item build should return instance on this class
 ///
@@ -96,8 +99,8 @@ class InfiniteListItem<I> {
     this.crossAxisAlignment = HeaderCrossAxisAlignment.start,
     this.positionAxis = HeaderPositionAxis.mainAxis,
     this.padding,
-  })  : overlayContent = false,
-        initialHeaderBuild = true;
+  }) : overlayContent = false,
+       initialHeaderBuild = true;
 
   /// List item constructor with overlayed header positioning
   const InfiniteListItem.overlay({
@@ -109,8 +112,8 @@ class InfiniteListItem<I> {
     this.mainAxisAlignment = HeaderMainAxisAlignment.start,
     this.crossAxisAlignment = HeaderCrossAxisAlignment.start,
     this.padding,
-  })  : positionAxis = HeaderPositionAxis.mainAxis,
-        overlayContent = true;
+  }) : positionAxis = HeaderPositionAxis.mainAxis,
+       overlayContent = true;
 
   /// Defines if list item has Header
   bool get hasStickyHeader =>
@@ -150,7 +153,10 @@ class InfiniteListItem<I> {
   void dispose() {}
 
   Widget _buildHeader(
-      BuildContext context, Stream<StickyState<I>> stream, I index) {
+    BuildContext context,
+    Stream<StickyState<I>> stream,
+    I index,
+  ) {
     assert(hasStickyHeader, "At least one builder should be provided");
 
     if (!watchStickyState) {
@@ -184,6 +190,13 @@ class InfiniteList extends StatefulWidget {
   ///
   /// This function is called during [SliverChildBuilderDelegate]
   final ItemBuilder<int> builder;
+
+  /// Stable identity and signed-index lookup for mutable lists.
+  final Key Function(int index)? itemKeyBuilder;
+  final int? Function(Key key)? findItemIndex;
+
+  /// One-shot layout correction after rebasing the list's index origin.
+  final ListScrollCorrection? scrollCorrection;
 
   /// Scroll controller
   final ScrollController? controller;
@@ -234,6 +247,9 @@ class InfiniteList extends StatefulWidget {
   const InfiniteList({
     super.key,
     required this.builder,
+    this.itemKeyBuilder,
+    this.findItemIndex,
+    this.scrollCorrection,
     this.controller,
     this.direction = InfiniteListDirection.single,
     this.posChildCount,
@@ -244,67 +260,92 @@ class InfiniteList extends StatefulWidget {
     this.scrollDirection = Axis.vertical,
     this.physics,
   }) : _centerKey = (direction == InfiniteListDirection.multi)
-            ? const ValueKey<String>('center-key')
-            : null;
+           ? const ValueKey<String>('center-key')
+           : null;
 
   @override
-  State<StatefulWidget> createState() => _InfiniteListState();
+  State<InfiniteList> createState() => InfiniteListState();
 }
 
-class _InfiniteListState extends State<InfiniteList> {
+class InfiniteListState extends State<InfiniteList> {
+  final _anchors = ListAnchorRegistry();
+
+  ListScrollAnchor? captureAnchor() => _anchors.captureAnchor();
+
+  ListScrollAnchor? captureItem(Key key) => _anchors.captureItem(key);
   final StreamController<StickyState<int>> _streamController =
       StreamController<StickyState<int>>.broadcast();
 
   SliverList get _reverseList => SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (BuildContext context, int index) =>
-              _buildListItem(context, (index + 1) * -1),
-          childCount: widget.negChildCount,
-        ),
-      );
+    delegate: SliverChildBuilderDelegate(
+      (BuildContext context, int index) =>
+          _buildListItem(context, (index + 1) * -1),
+      childCount: widget.negChildCount,
+      findChildIndexCallback: widget.findItemIndex == null
+          ? null
+          : (key) {
+              final index = widget.findItemIndex!(key);
+              return index != null && index < 0 ? -index - 1 : null;
+            },
+    ),
+  );
 
-  SliverList get _forwardList => SliverList(
-        delegate: SliverChildBuilderDelegate(
-          _buildListItem,
-          childCount: widget.posChildCount,
-        ),
-        key: widget._centerKey,
-      );
+  Widget get _forwardList => ScrollCorrectionSliver(
+    key: widget._centerKey,
+    correction: widget.scrollCorrection,
+    sliver: SliverList(
+      delegate: SliverChildBuilderDelegate(
+        _buildListItem,
+        childCount: widget.posChildCount,
+        findChildIndexCallback: widget.findItemIndex == null
+            ? null
+            : (key) {
+                final index = widget.findItemIndex!(key);
+                return index != null && index >= 0 ? index : null;
+              },
+      ),
+    ),
+  );
 
-  Widget _buildListItem(BuildContext context, int index) =>
-      _StickySliverListItem<int>(
-        streamController: _streamController,
-        index: index,
-        listItem: widget.builder(context, index),
-      );
+  Widget _buildListItem(BuildContext context, int index) {
+    final itemKey = widget.itemKeyBuilder?.call(index);
+    final item = _StickySliverListItem<int>(
+      streamController: _streamController,
+      index: index,
+      listItem: widget.builder(context, index),
+    );
+    return itemKey == null
+        ? item
+        : AnchoredListItem(
+            key: itemKey,
+            registry: _anchors,
+            itemKey: itemKey,
+            child: item,
+          );
+  }
 
-  List<SliverList> get _slivers {
+  List<Widget> get _slivers {
     switch (widget.direction) {
       case InfiniteListDirection.multi:
-        return [
-          _reverseList,
-          _forwardList,
-        ];
+        return [_reverseList, _forwardList];
 
       case InfiniteListDirection.single:
       default:
-        return [
-          _forwardList,
-        ];
+        return [_forwardList];
     }
   }
 
   @override
   Widget build(BuildContext context) => CustomScrollView(
-        controller: widget.controller,
-        center: widget._centerKey,
-        slivers: _slivers,
-        reverse: widget.reverse,
-        anchor: widget.anchor,
-        cacheExtent: widget.cacheExtent,
-        scrollDirection: widget.scrollDirection,
-        physics: widget.physics,
-      );
+    controller: widget.controller,
+    center: widget._centerKey,
+    slivers: _slivers,
+    reverse: widget.reverse,
+    anchor: widget.anchor,
+    cacheExtent: widget.cacheExtent,
+    scrollDirection: widget.scrollDirection,
+    physics: widget.physics,
+  );
 
   @override
   @mustCallSuper
@@ -373,8 +414,11 @@ class _StickySliverListItemState<I> extends State<_StickySliverListItem<I>> {
       return StickyListItem<I>.overlay(
         itemIndex: widget.index,
         streamSink: widget.streamController.sink,
-        header:
-            widget.listItem._buildHeader(context, widget._stream, widget.index),
+        header: widget.listItem._buildHeader(
+          context,
+          widget._stream,
+          widget.index,
+        ),
         content: content,
         minOffsetProvider: widget.listItem.minOffsetProvider,
         mainAxisAlignment: widget.listItem.mainAxisAlignment,
@@ -385,8 +429,11 @@ class _StickySliverListItemState<I> extends State<_StickySliverListItem<I>> {
     return StickyListItem<I>(
       itemIndex: widget.index,
       streamSink: widget.streamController.sink,
-      header:
-          widget.listItem._buildHeader(context, widget._stream, widget.index),
+      header: widget.listItem._buildHeader(
+        context,
+        widget._stream,
+        widget.index,
+      ),
       content: content,
       minOffsetProvider: widget.listItem.minOffsetProvider,
       mainAxisAlignment: widget.listItem.mainAxisAlignment,
@@ -448,14 +495,13 @@ class StickyListItem<I> extends Stack {
     this.positionAxis = HeaderPositionAxis.mainAxis,
     super.clipBehavior,
     super.key,
-  })  : overlayContent = false,
-        assert(
-            positionAxis == HeaderPositionAxis.mainAxis ||
-                crossAxisAlignment != HeaderCrossAxisAlignment.center,
-            'Center cross axis alignment can\'t be used with Cross axis positioning'),
-        super(
-          children: [content, header],
-        );
+  }) : overlayContent = false,
+       assert(
+         positionAxis == HeaderPositionAxis.mainAxis ||
+             crossAxisAlignment != HeaderCrossAxisAlignment.center,
+         'Center cross axis alignment can\'t be used with Cross axis positioning',
+       ),
+       super(children: [content, header]);
 
   /// Default sticky item constructor with overlayed header positioning.
   ///
@@ -470,11 +516,9 @@ class StickyListItem<I> extends Stack {
     this.crossAxisAlignment = HeaderCrossAxisAlignment.start,
     super.clipBehavior,
     super.key,
-  })  : overlayContent = true,
-        positionAxis = HeaderPositionAxis.mainAxis,
-        super(
-          children: [content, header],
-        );
+  }) : overlayContent = true,
+       positionAxis = HeaderPositionAxis.mainAxis,
+       super(children: [content, header]);
 
   ScrollableState _getScrollableState(BuildContext context) {
     final ScrollableState state = Scrollable.of(context);

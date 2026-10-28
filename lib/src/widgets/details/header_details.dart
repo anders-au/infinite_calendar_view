@@ -15,11 +15,8 @@ class HeaderListWidget extends StatefulWidget {
   final EventsController controller;
   final DateTime day;
   final bool isToday;
-  final Widget Function(
-    DateTime day,
-    bool isToday,
-    List<Event>? events,
-  )? dayHeaderBuilder;
+  final Widget Function(DateTime day, bool isToday, List<Event>? events)?
+  dayHeaderBuilder;
 
   @override
   State<HeaderListWidget> createState() => _HeaderListWidgetState();
@@ -34,9 +31,17 @@ class _HeaderListWidgetState extends State<HeaderListWidget> {
     super.initState();
     eventListener = () => updateEvents();
     widget.controller.addListener(eventListener);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      updateEvents();
-    });
+    events = widget.controller.getFilteredDayEvents(widget.day);
+  }
+
+  @override
+  void didUpdateWidget(covariant HeaderListWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(eventListener);
+      widget.controller.addListener(eventListener);
+    }
+    events = widget.controller.getFilteredDayEvents(widget.day);
   }
 
   @override
@@ -67,10 +72,7 @@ class _HeaderListWidgetState extends State<HeaderListWidget> {
 }
 
 class DefaultHeader extends StatelessWidget {
-  const DefaultHeader({
-    super.key,
-    required this.dayText,
-  });
+  const DefaultHeader({super.key, required this.dayText});
 
   static const defaultHorizontalPadding = 20.0;
   static const defaultVerticalPadding = 6.0;
@@ -95,8 +97,8 @@ class DefaultHeader extends StatelessWidget {
               child: Text(
                 dayText,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),
