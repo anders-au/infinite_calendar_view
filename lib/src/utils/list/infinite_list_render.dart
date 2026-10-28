@@ -60,7 +60,9 @@ class StickyListItemRenderObject<I> extends RenderStack {
   I get itemIndex => _itemIndex;
 
   set itemIndex(I index) {
+    if (_itemIndex == index) return;
     _itemIndex = index;
+    _lastOffset = null;
     markNeedsPaint();
   }
 

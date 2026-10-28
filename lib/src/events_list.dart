@@ -144,6 +144,9 @@ class EventsListState extends State<EventsList> {
   List<DateTime> _sparseDays = const [];
   int _sparseCenterIndex = 0; // index in _sparseDays corresponding to index 0
   VoidCallback? _sparseControllerListener;
+  final _sparseListKey = GlobalKey<InfiniteListState>();
+  ListScrollCorrection? _sparseScrollCorrection;
+  int _listGeneration = 0;
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -184,31 +187,19 @@ class EventsListState extends State<EventsList> {
       _attachListViewController();
     }
 
-    // Re-attach sparse listener if the controller changed.
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.hideDaysWithoutEvents != widget.hideDaysWithoutEvents) {
+      if (_sparseControllerListener != null) {
+        oldWidget.controller.removeListener(_sparseControllerListener!);
+        _sparseControllerListener = null;
+      }
+      if (widget.hideDaysWithoutEvents) {
+        _sparseControllerListener = _onSparseControllerUpdate;
+        widget.controller.addListener(_sparseControllerListener!);
+      }
+    }
     if (widget.hideDaysWithoutEvents) {
-      if (oldWidget.controller != widget.controller) {
-        if (_sparseControllerListener != null) {
-          oldWidget.controller.removeListener(_sparseControllerListener!);
-        }
-        _sparseControllerListener = _onSparseControllerUpdate;
-        widget.controller.addListener(_sparseControllerListener!);
-      }
-
-      // If mode was just enabled, set up for the first time.
-      if (!oldWidget.hideDaysWithoutEvents) {
-        _sparseControllerListener = _onSparseControllerUpdate;
-        widget.controller.addListener(_sparseControllerListener!);
-        final newDays = _buildSparseDays();
-        setState(() {
-          _sparseDays = newDays;
-          _sparseCenterIndex = _nearestSparseCenterIndex(newDays, initialDay);
-        });
-      }
-    } else if (oldWidget.hideDaysWithoutEvents &&
-        _sparseControllerListener != null) {
-      // Mode was turned off — detach listener.
-      widget.controller.removeListener(_sparseControllerListener!);
-      _sparseControllerListener = null;
+      _onSparseControllerUpdate();
     }
   }
 
@@ -242,23 +233,54 @@ class EventsListState extends State<EventsList> {
   /// sparse mode. Rebuilds the sparse day list only when its membership
   /// changes.
   ///
-  /// Keep the existing scroll controller and list identity here. Replacing a
-  /// controller during a ballistic scroll cancels its activity, which makes
-  /// loading events while the user is scrolling feel like the list suddenly
-  /// hits a wall. The center index is updated so index zero remains anchored
-  /// to the currently sticky day whenever that day is still present.
+  /// Rebase around a measured visible day, correcting the coordinate origin
+  /// during layout. Keeping pixels unchanged after changing index zero would
+  /// apply the old scroll distance to an entirely different set of dates.
   void _onSparseControllerUpdate() {
     if (!mounted) return;
     final newDays = _buildSparseDays();
     if (listEquals(newDays, _sparseDays)) return;
 
-    // Preserve the current sparse anchor without replacing the live scroll
-    // position. This allows any active drag or ballistic activity to continue.
-    final newCenter = _nearestSparseCenterIndex(newDays, stickyDay);
+    final list = _sparseListKey.currentState;
+    final anchor = list?.captureAnchor();
+    final anchorDay = anchor == null
+        ? stickyDay
+        : (anchor.key as ValueKey<DateTime>).value;
+    final newCenter = _nearestSparseCenterIndex(newDays, anchorDay);
+    final newDay = newDays.isEmpty ? anchorDay : newDays[newCenter];
+    // If the anchor was deleted, prefer the next surviving date, then the
+    // previous date. Use its measured position when it is already on screen.
+    final replacement = newDay == anchorDay
+        ? anchor
+        : list?.captureItem(ValueKey(newDay)) ?? anchor;
     setState(() {
+      _listGeneration++;
       _sparseDays = newDays;
       _sparseCenterIndex = newCenter;
-      initialDay = stickyDay;
+      initialDay = newDay;
+      _sparseScrollCorrection = ListScrollCorrection(
+        replacement == null || newDays.isEmpty
+            ? -(mainVerticalController.hasClients
+                  ? mainVerticalController.offset
+                  : 0.0)
+            : -replacement.leading - replacement.scrollOffset,
+      );
+    });
+    if (newDays.isNotEmpty) {
+      stickyDay = newDay;
+      _queueVisibleDayChanged(newDay);
+    }
+  }
+
+  void _queueVisibleDayChanged(DateTime day) {
+    final generation = _listGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          listenScroll &&
+          generation == _listGeneration &&
+          stickyDay == day) {
+        _notifyVisibleDayChanged(day);
+      }
     });
   }
 
@@ -437,7 +459,17 @@ class EventsListState extends State<EventsList> {
     final posCount = _sparseDays.length - centerIdx;
 
     return InfiniteList(
+      key: _sparseListKey,
       controller: mainVerticalController,
+      scrollCorrection: _sparseScrollCorrection,
+      itemKeyBuilder: (index) => ValueKey(_sparseDays[centerIdx + index]),
+      findItemIndex: (key) {
+        final day = (key as ValueKey<DateTime>).value;
+        final index = _lowerBound(_sparseDays, day);
+        return index < _sparseDays.length && _sparseDays[index] == day
+            ? index - centerIdx
+            : null;
+      },
       direction: InfiniteListDirection.multi,
       negChildCount: negCount,
       posChildCount: posCount,
@@ -471,20 +503,17 @@ class EventsListState extends State<EventsList> {
 
   // ── Shared day-item builder ───────────────────────────────────────────────────
   InfiniteListItem<int> _buildDayItem(DateTime day) {
+    final generation = _listGeneration;
     final isToday = DateUtils.isSameDay(day, DateTime.now());
     final dayEvents = widget.controller.getSortedFilteredDayEvents(day);
 
     return InfiniteListItem(
       headerStateBuilder: (context, state) {
-        if (state.sticky && listenScroll) {
+        if (state.sticky && listenScroll && generation == _listGeneration) {
           if (stickyDay != day) {
             stickyDay = day;
             currentIndex = state.index;
-            Future(() {
-              if (listenScroll == true) {
-                _notifyVisibleDayChanged(stickyDay);
-              }
-            });
+            _queueVisibleDayChanged(day);
           }
         }
         return HeaderListWidget(
@@ -516,6 +545,8 @@ class EventsListState extends State<EventsList> {
           : _sparseCenterIndex; // unused in dense mode
 
       setState(() {
+        _listGeneration++;
+        _sparseScrollCorrection = null;
         // change key to force rebuild
         key = UniqueKey();
         // change initial day
@@ -544,7 +575,7 @@ class EventsListState extends State<EventsList> {
       }
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        widget.controller.notifyListeners();
+        if (mounted) widget.controller.notifyListeners();
       });
     }
   }
@@ -592,6 +623,16 @@ class _DayEventsState extends State<DayEvents> {
         widget.controller.getSortedFilteredDayEvents(widget.day);
     eventListener = () => updateEvents();
     widget.controller.addListener(eventListener);
+  }
+
+  @override
+  void didUpdateWidget(covariant DayEvents oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(eventListener);
+      widget.controller.addListener(eventListener);
+    }
+    events = widget.controller.getSortedFilteredDayEvents(widget.day);
   }
 
   @override
