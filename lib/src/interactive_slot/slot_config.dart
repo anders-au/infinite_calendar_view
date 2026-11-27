@@ -23,6 +23,7 @@ class SlotInteractionConfig {
     this.maxDurationMinutes,
     this.showHandles = true,
     this.handleZoneSize = 20.0,
+    this.handleOutsideExtent = 16.0,
     this.dragThreshold = 6.0,
     this.longPressDuration = const Duration(milliseconds: 300),
     this.accentColor,
@@ -116,6 +117,16 @@ class SlotInteractionConfig {
   /// Pixel height of the top and bottom resize handle zones.
   /// Defaults to 20.0.
   final double handleZoneSize;
+
+  /// How far each resize handle's drag zone reaches outside the slot, in
+  /// logical pixels.
+  ///
+  /// Timed slots extend the top handle upwards and the bottom handle
+  /// downwards; all-day slots extend the start and end handles sideways. A
+  /// press just past the slot's edge then grabs the handle instead of
+  /// missing it. Set to 0 to keep the zones inside the slot.
+  /// Defaults to 16.0.
+  final double handleOutsideExtent;
 
   /// Minimum pointer movement in logical pixels before a drag commits.
   /// Prevents accidental micro-drags.  Defaults to 6.0.

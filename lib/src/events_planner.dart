@@ -1076,6 +1076,7 @@ class EventsPlannerState extends State<EventsPlanner>
       maxDurationMinutes: userConfig.maxDurationMinutes,
       showHandles: userConfig.showHandles,
       handleZoneSize: userConfig.handleZoneSize,
+      handleOutsideExtent: userConfig.handleOutsideExtent,
       dragThreshold: userConfig.dragThreshold,
       longPressDuration: userConfig.longPressDuration,
       accentColor: userConfig.accentColor,

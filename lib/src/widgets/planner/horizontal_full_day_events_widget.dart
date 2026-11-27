@@ -301,6 +301,7 @@ class _HorizontalFullDayEventsWidgetState
           maxDurationMinutes: param.maxDurationMinutes,
           showHandles: param.showHandles,
           handleZoneSize: param.handleZoneSize,
+          handleOutsideExtent: param.handleOutsideExtent,
           dragThreshold: param.dragThreshold,
           longPressDuration: param.longPressDuration,
           accentColor: param.accentColor,

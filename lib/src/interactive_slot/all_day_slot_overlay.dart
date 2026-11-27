@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -335,6 +337,21 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
         showRightHandle || activeMode == DragMode.extendEnd;
 
     final rect = layout.rect;
+    // Resize zones also reach outside the slot so a press just past its
+    // edge still grabs the handle. They stay within the bar, the only area
+    // this Stack can hit-test.
+    final outside = widget.config.handleOutsideExtent;
+    // min/max rather than clamp: an ongoing slot can run past the bar, which
+    // would give clamp a lower bound above its upper bound.
+    final leftZoneStart = math.min(
+      rect.left,
+      math.max(0.0, rect.left - outside),
+    );
+    final barWidth = widget.viewportWidth ?? _stackWidthFromContext(context);
+    final rightZoneEnd = math.max(
+      rect.right,
+      math.min(barWidth ?? double.infinity, rect.right + outside),
+    );
     final shiftLeftInset = showLeftHandle ? zoneSize : 0.0;
     final shiftRightInset = showRightHandle ? zoneSize : 0.0;
     final shiftWidth = (rect.width - shiftLeftInset - shiftRightInset).clamp(
@@ -394,9 +411,9 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
       if (mountLeftHandleZone)
         Positioned(
           key: const ValueKey('allDaySlot.extendStart.positioned'),
-          left: rect.left,
+          left: leftZoneStart,
           top: rect.top,
-          width: zoneSize,
+          width: rect.left - leftZoneStart + zoneSize,
           height: rect.height,
           child: SlotHandleZone(
             dragMode: DragMode.extendStart,
@@ -411,7 +428,7 @@ class _AllDaySlotOverlayState extends State<AllDaySlotOverlay> {
           key: const ValueKey('allDaySlot.extendEnd.positioned'),
           left: rect.right - zoneSize,
           top: rect.top,
-          width: zoneSize,
+          width: rightZoneEnd - rect.right + zoneSize,
           height: rect.height,
           child: SlotHandleZone(
             dragMode: DragMode.extendEnd,
