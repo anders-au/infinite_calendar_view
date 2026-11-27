@@ -221,6 +221,10 @@ class _SlotOverlayState extends State<SlotOverlay> {
     final segPadL = pad + widget.columnPositions[0];
     final segPadR = pad + paddedWidth - widget.columnPositions[1];
     final zoneSize = widget.config.handleZoneSize;
+    // Resize zones also reach outside the slot so a press just past its
+    // edge still grabs the handle. They stay within this overlay's day
+    // height, the only area its Stack can hit-test.
+    final outside = widget.config.handleOutsideExtent;
 
     // ── Build day columns (RENDER layer — uses live slot) ────────
     final List<Widget> columns = [];
@@ -394,12 +398,13 @@ class _SlotOverlayState extends State<SlotOverlay> {
         widget.config.enableResizeStart &&
         rTotalDays > 0) {
       final topY = widget.timeMapper.minuteToY(rStartMinute);
+      final zoneTop = (topY - outside).clamp(0.0, topY);
       outerChildren.add(
         Positioned(
           left: segPadL,
-          top: topY,
+          top: zoneTop,
           width: colWidth,
-          height: zoneSize,
+          height: topY - zoneTop + zoneSize,
           child: SlotHandleZone(
             key: const ValueKey('startHandle'),
             dragMode: DragMode.extendStart,
@@ -442,12 +447,13 @@ class _SlotOverlayState extends State<SlotOverlay> {
         raw -= gapH;
       final endY = raw.clamp(0.0, dayHeight);
       final endL = (rTotalDays - 1) * dayWidth + segPadL;
+      final zoneBottom = (endY + outside).clamp(endY, dayHeight);
       outerChildren.add(
         Positioned(
           left: endL,
           top: endY - zoneSize,
           width: colWidth,
-          height: zoneSize,
+          height: zoneBottom - endY + zoneSize,
           child: SlotHandleZone(
             key: const ValueKey('endHandle'),
             dragMode: DragMode.extendEnd,
